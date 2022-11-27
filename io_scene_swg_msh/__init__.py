@@ -23,7 +23,7 @@
 bl_info = {
     "name": "SWG Mesh (.msh) Import/Export",
     "author": "Nick Rafalski",
-    "version": (1, 0, 0),
+    "version": (1, 0, 1),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh",
@@ -90,9 +90,9 @@ class ImportMSH(bpy.types.Operator, ImportHelper):
                                         ).to_4x4()
         keywords["global_matrix"] = global_matrix
 
-        if bpy.data.is_saved and context.preferences.filepaths.use_relative_paths:
-            import os
-            keywords["relpath"] = os.path.dirname(bpy.data.filepath)
+        # if bpy.data.is_saved and context.preferences.filepaths.use_relative_paths:
+        #     import os
+        #     keywords["relpath"] = os.path.dirname(bpy.data.filepath)
 
         result = import_msh.load_new(context, **keywords)
         if 'ERROR' in result:
