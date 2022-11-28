@@ -23,7 +23,7 @@
 bl_info = {
     "name": "SWG Mesh (.msh) Import/Export",
     "author": "Nick Rafalski",
-    "version": (1, 0, 1),
+    "version": (1, 0, 2),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh",
@@ -129,6 +129,7 @@ class MSH_PT_import_option(bpy.types.Panel):
         layout.prop(operator, "axis_up")
         layout.prop(operator, 'flip_uv_vertical')
 
+
 @orientation_helper(axis_forward='Z', axis_up='Y')
 class ExportMSH(bpy.types.Operator, ExportHelper):
     """Save a SWG .msh File"""
@@ -166,7 +167,6 @@ class ExportMSH(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         from . import export_msh
-
         from mathutils import Matrix
         keywords = self.as_keywords(ignore=("axis_forward",
                                             "axis_up",

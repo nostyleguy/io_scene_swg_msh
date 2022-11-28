@@ -31,7 +31,7 @@ from . import swg_types
 
 def load_new(context,
              filepath,
-             *,             
+             *,     
              global_matrix=None,
              flip_uv_vertical=False
              ):
