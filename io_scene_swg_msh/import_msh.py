@@ -42,6 +42,7 @@ def load_new(context,
         return {'ERROR'}
 
     for i in range(len(msh.spss)):
+        index = i
         sps = msh.spss[i]
         
         verts = []
@@ -93,8 +94,20 @@ def load_new(context,
         name=os.path.basename(filepath).rsplit( ".", 1 )[ 0 ]
         obj = bpy.data.objects.new(f'{name}-{str(sps.no)}', mesh)
         context.collection.objects.link(obj)
+
+        #self.hardpoints.append([rotXx, rotXy, rotXz, posX(3), rotYx, rotYy, rotYz, posY(7), rotZx, rotZy, rotZz, posZ(11), hpntName(12)])
+        #only apply hardpoints to sps index 0 so we don't get duplicates
+        if index == 0:
+            for hpnts in msh.hardpoints:
+                hpntadded = bpy.data.objects.new(name=hpnts[12], object_data=None)
+                hpntadded.location=(hpnts[3], hpnts[7], hpnts[11])
+                hpntadded.empty_display_type = "ARROWS"
+                hpntadded.parent = obj
+                bpy.context.collection.objects.link(hpntadded)
+
         obj["Shader"] = sps.shader
         obj["Collision"] = base64.b64encode(msh.collision).decode('ASCII')
+        obj["Floor"] = msh.floor
         
         if obj.get('_RNA_UI') is None:
             obj['_RNA_UI'] = {}
@@ -106,6 +119,10 @@ def load_new(context,
         obj['_RNA_UI']["Collision"] = {
             "name": "Collision",
             "description": "Collision data",
+            }
+        obj['_RNA_UI']["Floor"] = {
+            "name": "Floor",
+            "description": "Floor name",
             }
         
     return {'FINISHED'}

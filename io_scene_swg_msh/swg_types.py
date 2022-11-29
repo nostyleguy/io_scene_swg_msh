@@ -73,12 +73,14 @@ class SPS(object):
         return self.__str__()
 
 class SWGMesh(object):
-    __slots__ = ('filename', 'spss', 'extents', 'collision')
+    __slots__ = ('filename', 'spss', 'extents', 'collision', 'hardpoints', 'floor')
     def __init__(self, filename):
         self.filename = filename
         self.spss = []
         self.extents = []
         self.collision = None
+        self.hardpoints = []
+        self.floor = ""
 
     def __str__(self):
         s = f"Filename: {self.filename}\nExtents: {str(self.extents)}\nCollision: {str(self.collision_summary_str())}\nSPS: {len(self.spss)}\n"
@@ -197,10 +199,41 @@ class SWGMesh(object):
             iff.exitForm("EXBX")
 
             # Collision stuff
-            col_data_length = iff.getCurrentLength() + 8
-            col_form_name = iff.getCurrentName()
-            self.collision = iff.read_misc(col_data_length)
-            #print(f"Collision form: {col_form_name} Len: {col_data_length}")
+            if iff.enterForm("NULL", True):
+                print("No collision data - bailing")
+                self.collision = bytearray(0)
+                iff.exitForm("NULL")
+            else:
+                col_data_length = iff.getCurrentLength() + 8
+                col_form_name = iff.getCurrentName()
+                self.collision = iff.read_misc(col_data_length)
+                print(f"Collision form: {col_form_name} Len: {col_data_length}")
+
+            #hardpoints
+            iff.enterForm("HPTS", True, False)
+            while iff.enterChunk("HPNT", True):
+                rotXx = iff.read_float()
+                rotXy = iff.read_float()
+                rotXz = iff.read_float()
+                posX = iff.read_float()
+                rotYx = iff.read_float()
+                rotYy = iff.read_float()
+                rotYz = iff.read_float()
+                posY = iff.read_float()
+                rotZx = iff.read_float()
+                rotZy = iff.read_float()
+                rotZz = iff.read_float()
+                posZ = iff.read_float()
+                hpntName = iff.read_string()
+                self.hardpoints.append([rotXx, rotXy, rotXz, posX, rotYx, rotYy, rotYz, posY, rotZx, rotZy, rotZz, posZ, hpntName])
+                iff.exitChunk("HPNT")
+            iff.exitForm("HPTS")
+
+            if iff.enterForm("FLOR", True):
+                if iff.enterChunk("DATA", True):
+                    self.floor = iff.read_string()
+                    iff.exitChunk("DATA")
+                iff.exitForm("FLOR")
             
             iff.exitForm()
         else:
