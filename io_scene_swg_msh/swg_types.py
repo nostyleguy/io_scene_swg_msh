@@ -363,7 +363,7 @@ class SWGMesh(object):
         # --- END EXTENTS
 
         # --- BEGIN COLLISION
-        if self.collision == None:
+        if self.collision == None or len(self.collision) == 0 :
             iff.insertForm("NULL")
         else :
             iff.insertForm(self.collision[8:12].decode('ASCII'))
@@ -373,6 +373,23 @@ class SWGMesh(object):
 
         # --- BEGIN HARDPOINTS
         iff.insertForm("HPTS")
+        if len(self.hardpoints) > 0:
+            for hpnt in self.hardpoints:
+                iff.insertChunk("HPNT")
+                iff.insertFloat(hpnt[0])
+                iff.insertFloat(hpnt[1])
+                iff.insertFloat(hpnt[2])
+                iff.insertFloat(hpnt[3]) #x pos
+                iff.insertFloat(hpnt[4])
+                iff.insertFloat(hpnt[5])
+                iff.insertFloat(hpnt[6])
+                iff.insertFloat(hpnt[7]) #y pos
+                iff.insertFloat(hpnt[8])
+                iff.insertFloat(hpnt[9])
+                iff.insertFloat(hpnt[10])
+                iff.insertFloat(hpnt[11]) #z pos
+                iff.insertChunkString(hpnt[12]) #hpnt name
+                iff.exitChunk("HPNT")
         iff.exitForm()
         # --- END HARDPOINTS
 

@@ -100,8 +100,14 @@ def load_new(context,
         if index == 0:
             for hpnts in msh.hardpoints:
                 hpntadded = bpy.data.objects.new(name=hpnts[12], object_data=None)
-                hpntadded.location=(hpnts[3], hpnts[7], hpnts[11])
+                hpntadded.matrix_world = [
+                    [hpnts[0], hpnts[8], hpnts[4], 0.0],
+                    [hpnts[1], hpnts[9], hpnts[5], 0.0],
+                    [hpnts[2], hpnts[10], hpnts[6], 0.0],
+                    [hpnts[3], hpnts[11], hpnts[7], 0.0],
+                ]
                 hpntadded.empty_display_type = "ARROWS"
+                hpntadded.empty_display_size = 0.1 #small display
                 hpntadded.parent = obj
                 bpy.context.collection.objects.link(hpntadded)
 

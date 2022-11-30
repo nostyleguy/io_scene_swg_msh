@@ -79,7 +79,13 @@ def save(context,
         curr_sps_number = 0
         for ob, ob_mat in obs:
             if ob.type != 'MESH':
-                continue           
+                if ob.type == 'EMPTY':
+                    #this is a hardpoint, pls
+                    newMsh.hardpoints.append([
+                    ob.matrix_world[0][0], ob.matrix_world[0][1], ob.matrix_world[0][2], ob.matrix_world[0][3],
+                    ob.matrix_world[2][0], ob.matrix_world[2][1], ob.matrix_world[2][2], ob.matrix_world[2][3],
+                    ob.matrix_world[1][0], ob.matrix_world[1][1], ob.matrix_world[1][2], ob.matrix_world[1][3], ob.name])
+                continue
             
             curr_sps_number += 1
             shader="shader/defaultappearance.sht"
