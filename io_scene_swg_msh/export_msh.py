@@ -80,11 +80,22 @@ def save(context,
         for ob, ob_mat in obs:
             if ob.type != 'MESH':
                 if ob.type == 'EMPTY':
-                    #this is a hardpoint, pls
-                    newMsh.hardpoints.append([
-                    ob.matrix_world[0][0], ob.matrix_world[0][1], ob.matrix_world[0][2], ob.matrix_world[0][3],
-                    ob.matrix_world[2][0], ob.matrix_world[2][1], ob.matrix_world[2][2], ob.matrix_world[2][3],
-                    ob.matrix_world[1][0], ob.matrix_world[1][1], ob.matrix_world[1][2], ob.matrix_world[1][3], ob.name])
+                    if ob.empty_display_type == "ARROWS":
+                        #this is a hardpoint, pls
+                        newMsh.hardpoints.append([
+                        ob.matrix_world[0][0], ob.matrix_world[0][1], ob.matrix_world[0][2], ob.matrix_world[0][3],
+                        ob.matrix_world[2][0], ob.matrix_world[2][1], ob.matrix_world[2][2], ob.matrix_world[2][3],
+                        ob.matrix_world[1][0], ob.matrix_world[1][1], ob.matrix_world[1][2], ob.matrix_world[1][3], ob.name])
+                    if ob.empty_display_type == "CUBE":
+                        print("found empty-cube, collision?")
+                        print(ob.matrix_world)
+                    if ob.empty_display_type == "SPHERE":
+                        print("found empty-sphere, collision?")
+                        print(ob.matrix_world)
+                        newMsh.realCollision.append([
+                        ob.matrix_world[0][0], ob.matrix_world[0][1], ob.matrix_world[0][2], ob.matrix_world[0][3],
+                        ob.matrix_world[2][0], ob.matrix_world[2][1], ob.matrix_world[2][2], ob.matrix_world[2][3],
+                        ob.matrix_world[1][0], ob.matrix_world[1][1], ob.matrix_world[1][2], ob.matrix_world[1][3], "sphere"])
                 continue
             
             curr_sps_number += 1

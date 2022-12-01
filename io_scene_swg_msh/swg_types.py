@@ -73,12 +73,13 @@ class SPS(object):
         return self.__str__()
 
 class SWGMesh(object):
-    __slots__ = ('filename', 'spss', 'extents', 'collision', 'hardpoints', 'floor')
+    __slots__ = ('filename', 'spss', 'extents', 'collision', 'realCollision', 'hardpoints', 'floor')
     def __init__(self, filename):
         self.filename = filename
         self.spss = []
         self.extents = []
         self.collision = None
+        self.realCollision = None
         self.hardpoints = []
         self.floor = ""
 
@@ -363,7 +364,18 @@ class SWGMesh(object):
         # --- END EXTENTS
 
         # --- BEGIN COLLISION
-        if self.collision == None or len(self.collision) == 0 :
+        if len(self.realCollision) > 0:
+            print("adding real collision")
+            if len(self.realCollision) == 1:
+                #we can do magic here because it's only one.
+                if self.realCollision[0][12] == "sphere":
+                    iff.insertForm("EXSP")
+                    form EXSP
+                    form 0001
+                    chunk SPHR
+                    vec3 position
+                    float radius
+        elif self.collision == None or len(self.collision) == 0 :
             iff.insertForm("NULL")
         else :
             iff.insertForm(self.collision[8:12].decode('ASCII'))
