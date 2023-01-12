@@ -167,6 +167,9 @@ def save(context,
                 for uv_index, l_index in enumerate(f.loop_indices):
                     #print(f'  New uv: {str(uv_index)}: {l_index}')
                     uv = uv_layer[l_index].uv
+
+                    if flip_uv_vertical:
+                        uv[1] = 1 - uv[1]
                     # include the vertex index in the key so we don't share UV's between vertices,
                     # allowed by the OBJ spec but can cause issues for other importers, see: T47010.
 
