@@ -23,7 +23,7 @@
 bl_info = {
     "name": "SWG Mesh (.msh) Import/Export",
     "author": "Nick Rafalski",
-    "version": (1, 0, 3),
+    "version": (1, 0, 4),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh",

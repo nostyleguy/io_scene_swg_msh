@@ -263,7 +263,7 @@ class SWGMesh(object):
             iff.exitChunk("INFO")
 
             version=iff.getCurrentName()
-            if version == "0001":
+            if version in ["0000", "0001"]:
                 iff.enterForm(version)
                 iff.enterChunk("INFO")
                 iff.exitChunk("INFO")
@@ -364,18 +364,7 @@ class SWGMesh(object):
         # --- END EXTENTS
 
         # --- BEGIN COLLISION
-        if len(self.realCollision) > 0:
-            print("adding real collision")
-            if len(self.realCollision) == 1:
-                #we can do magic here because it's only one.
-                if self.realCollision[0][12] == "sphere":
-                    iff.insertForm("EXSP")
-                    form EXSP
-                    form 0001
-                    chunk SPHR
-                    vec3 position
-                    float radius
-        elif self.collision == None or len(self.collision) == 0 :
+        if self.collision == None or len(self.collision) == 0 :
             iff.insertForm("NULL")
         else :
             iff.insertForm(self.collision[8:12].decode('ASCII'))
