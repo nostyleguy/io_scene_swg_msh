@@ -239,7 +239,7 @@ def save(context,
 
                     swg_v = swg_types.SWGVertex()
                     swg_v.pos = vector3D.Vector3D(-v.co[0], v.co[1], v.co[2])
-                    swg_v.normal = vector3D.Vector3D(-v.normal[0], v.normal[2], v.normal[1])
+                    swg_v.normal = vector3D.Vector3D(-v.normal[0], v.normal[1], v.normal[2])
                     swg_v.texs.append(final_uvs[uv_face_mapping[f_index][vi]])
                     thisSPS.verts.append(swg_v)
             

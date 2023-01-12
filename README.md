@@ -9,7 +9,7 @@ Should work with Blender 2.9+ and 3+
 * Vertex Colors: Not supported (can read a mesh with them, but will be unused and lost). No export support.
 * Extents: Automatically compute Extents (box and sphere)
 * Collision Extents: Reads CollisionExtents and stores their binary data in a Custom Property so they can be exported. No edit support, but non-destructive 
-* Floor: No support for the FLOR form. Will always be False
-* Hardpoints: No support for the HPTS form. Will always be an empty list.
+* Floor: Saves floor file name in custom property
+* Hardpoints: Supports hardpoints as empty objects
 * Shader: Shader name of each SPS is read and stored on a Custom Property which will be used at export. 
  * If you are creating a new object from scratch, add a Custom Property named "Shader" with the shader path as the value (e.g: "shader/defaultappearance.sht"). On export, this will be filled in the SPS's shader NAME chunk. 
