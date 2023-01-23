@@ -24,9 +24,10 @@ import os
 import bpy
 import base64
 import bmesh
-
 from . import vector3D
 from . import swg_types
+from . import vertex_buffer_format
+
 from mathutils import Matrix, Vector, Color
 from bpy_extras import io_utils, node_shader_utils
 
@@ -70,13 +71,11 @@ def save(context,
             
     extreme_l_x = None
     extreme_l_y = None
-    extreme_l_z = None
-    
-    for ob_main in objects:
-        obs = []
-        obs = [(ob_main, ob_main.matrix_world)]
+    extreme_l_z = None    
             
-        curr_sps_number = 0
+    curr_sps_number = 0
+    for ob_main in objects:
+        obs = [(ob_main, ob_main.matrix_world)]
         for ob, ob_mat in obs:
             if ob.type != 'MESH':
                 if ob.type == 'EMPTY':
@@ -97,33 +96,53 @@ def save(context,
                         ob.matrix_world[2][0], ob.matrix_world[2][1], ob.matrix_world[2][2], ob.matrix_world[2][3],
                         ob.matrix_world[1][0], ob.matrix_world[1][1], ob.matrix_world[1][2], ob.matrix_world[1][3], "sphere"])
                 continue
-            
+
             curr_sps_number += 1
+
             shader="shader/defaultappearance.sht"
             if "Shader" in ob:
                 shader = ob["Shader"] 
             if "Collision" in ob:
                 col_bytes = base64.b64decode(ob["Collision"])
                 newMsh.collision = col_bytes
+
+            uvSets = 1
+            if "UVSets" in ob:
+                uvSets = ob["UVSets"]
+
+            doDOT3 = False
+            if "DOT3" in ob:
+                doDOT3 = ob["DOT3"]
             
             thisSPS = swg_types.SPS(curr_sps_number, shader, 0, [], [])
             
+            thisSPS.flags = vertex_buffer_format.setPosition(thisSPS.flags, True)
+            thisSPS.flags = vertex_buffer_format.setNormal(thisSPS.flags, True)
+            thisSPS.flags = vertex_buffer_format.setNumberOfTextureCoordinateSets(thisSPS.flags, uvSets)
+            for i in range(0, uvSets):
+                thisSPS.flags = vertex_buffer_format.setTextureCoordinateSetDimension(thisSPS.flags, i, 2)
+
+            if doDOT3:
+                uv_dim = vertex_buffer_format.getNumberOfTextureCoordinateSets(thisSPS.flags) + 1
+                thisSPS.flags = vertex_buffer_format.setNumberOfTextureCoordinateSets(thisSPS.flags, uv_dim)
+                thisSPS.flags = vertex_buffer_format.setTextureCoordinateSetDimension(thisSPS.flags, uv_dim - 1, 4)
+            
+            print(f"SPS {str(thisSPS.no)}: UVs: {str(vertex_buffer_format.getNumberOfTextureCoordinateSets(thisSPS.flags))} Has flags {str(thisSPS.flags)}")
+
             me = ob.to_mesh()
             me.transform(global_matrix @ ob_mat)
-            #bm = bmesh.new()
-            #bm.from_mesh(me)
-            #uv_layer = bm.loops.layers.uv.active
-            mesh_triangulate(me)
-            # i = 0
-            # for face in bm.faces:
-            #     print(f'New face {i} ...')
-            #     i += 1
-            #     for vert in face.loops:
-            #         # here are the UV coords
-            #         print(f' Vert: {vert[uv_layer].uv}')
 
-            #mesh_triangulate(me)
-            #me.calc_loop_triangles()
+            mesh_triangulate(me)
+
+            tang_lib = []
+            me.calc_tangents()
+            for i, loop in enumerate(me.loops):
+                a = loop.tangent[:]
+                b = list(a)
+                b.insert(3, 1.0)
+                b = tuple(b)
+                tang_lib.append(b[:])
+                #print(f"Tagent {str(i)}: {str(a)} changed to {str(b)}")
 
             #If negative scaling, we have to invert the normals...
             if ob_mat.determinant() < 0.0:
@@ -142,15 +161,12 @@ def save(context,
             uv_dict = {}
             uv_get = uv_dict.get
             uv_unique_count = 0
-            uv0s={}
             if not (len(face_index_pairs) + len(me.vertices)):  # Make sure there is somthing to write
                 # clean up
                 bpy.data.meshes.remove(me)
                 continue  # dont bother with this mesh.             
             
-            # in case removing some of these dont get defined.
-            # UV
-                # in case removing some of these dont get defined.
+            
             uv = f_index = uv_index = uv_key = uv_val = uv_ls = None
 
             uv_face_mapping = [None] * len(face_index_pairs)
@@ -194,38 +210,13 @@ def save(context,
                         thisSPS.tris.append(swg_types.Triangle(p3, p2, p1))
                         p1 = p2 = p3 = None
 
-            del uv_dict, uv, f_index, uv_index, uv_ls, uv_get, uv_key, uv_val
-            # Only need uv_unique_count and uv_face_mapping
-
-            # NORMAL, Smooth/Non smoothed.
-            # if EXPORT_NORMALS:
-            #     no_key = no_val = None
-            #     normals_to_idx = {}
-            #     no_get = normals_to_idx.get
-            #     loops_to_normals = [0] * len(loops)
-            #     for f, f_index in face_index_pairs:
-            #         for l_idx in f.loop_indices:
-            #             no_key = veckey3d(loops[l_idx].normal)
-            #             no_val = no_get(no_key)
-            #             if no_val is None:
-            #                 no_val = normals_to_idx[no_key] = no_unique_count
-            #                 fw('vn %.4f %.4f %.4f\n' % no_key)
-            #                 no_unique_count += 1
-            #             loops_to_normals[l_idx] = no_val
-            #     del normals_to_idx, no_get, no_key, no_val
-            # else:
-            #     loops_to_normals = []
-            totverts = totuvco = totno = 1     
+            del uv_dict, uv, f_index, uv_index, uv_ls, uv_get, uv_key, uv_val               
             
             for f, f_index in face_index_pairs:
                 f_v = [(vi, me_verts[v_idx], l_idx)
                         for vi, (v_idx, l_idx) in enumerate(zip(f.vertices, f.loop_indices))]
 
                 for vi, v, li in f_v:
-                    # print("where is this shit: %d %d/%d" % (li, v.index,
-                    #                 uv_face_mapping[f_index][vi],
-                    #                 ))
-                    # print(f' That vert is: {str(v.co)} uv is: {str(final_uvs[uv_face_mapping[f_index][vi]])}')
 
                     if extreme_g_x == None or -v.co[0] > extreme_g_x:
                         extreme_g_x = -v.co[0]
@@ -243,53 +234,21 @@ def save(context,
                     swg_v = swg_types.SWGVertex()
                     swg_v.pos = vector3D.Vector3D(-v.co[0], v.co[1], v.co[2])
                     swg_v.normal = vector3D.Vector3D(-v.normal[0], v.normal[1], v.normal[2])
-                    swg_v.texs.append(final_uvs[uv_face_mapping[f_index][vi]])
+
+                    for i in range(0, uvSets):                        
+                        swg_v.texs.append(final_uvs[uv_face_mapping[f_index][vi]])
+
+                    if doDOT3:
+                        swg_v.texs.append(tang_lib[li])
+
                     thisSPS.verts.append(swg_v)
-            
-            # for tri in me.loop_triangles:
-            #     #print(f'Tri: {tri}')
-            #     thisSPS.tris.append(swg_types.Triangle(tri.vertices[0], tri.vertices[1], tri.vertices[2]))
-
-            # #print("uvs: %s" % str(uv0s))
-            # i=0
-            # for vert in me_verts:
-            #     if extreme_g_x == None or -vert.co[0] > extreme_g_x:
-            #         extreme_g_x = -vert.co[0]
-            #     if extreme_l_x == None or -vert.co[0] < extreme_l_x:
-            #         extreme_l_x = -vert.co[0]
-            #     if extreme_g_y == None or vert.co[1] > extreme_g_y:
-            #         extreme_g_y = vert.co[1]
-            #     if extreme_l_y == None or vert.co[1] < extreme_l_y:
-            #         extreme_l_y = vert.co[1]
-            #     if extreme_g_z == None or vert.co[2] > extreme_g_z:
-            #         extreme_g_z = vert.co[2]
-            #     if extreme_l_z == None or vert.co[2] < extreme_l_z:
-            #         extreme_l_z = vert.co[2]
-            
-            #     msh_vert = swg_types.SWGVertex()
-            #     msh_vert.pos = swg_types.vector3D.Vector3D(-vert.co[0], vert.co[1], vert.co[2])
-            #     msh_vert.normal = swg_types.vector3D.Vector3D(vert.normal[0], vert.normal[2], vert.normal[1])
-
-            #     try:
-            #         uv=uv0s[i]
-            #         msh_vert.texs = [[uv[0],uv[1]]]
-            #         if flip_uv_vertical:
-            #             msh_vert.texs[0][1] = (1.0 - msh_vert.texs[0][1])
-            #     except:
-            #         print(f'Exception writing UV: {i}')
-
-            #     thisSPS.verts.append(msh_vert)
-            #     #print('Exported Vert: %d : Pos: %s Norm: %s UV: %s' % (i, msh_vert.pos, msh_vert.normal, msh_vert.texs))
-            #     i += 1
-
-            # for i in range(0, len(thisSPS.verts)):
-            #     print(f'Vert {i}: {thisSPS.verts[i]}')
-            # for i in range(0, len(thisSPS.tris)):
-            #     print(f'Tri {i}: {thisSPS.tris[i]}')
-            newMsh.spss.append(thisSPS)   
+            newMsh.spss.append(thisSPS)
     
     newMsh.extents.append((extreme_g_x, extreme_g_y, extreme_g_z))
     newMsh.extents.append((extreme_l_x, extreme_l_y, extreme_l_z))
-    newMsh.write(filepath) 
+       
+    print(f"Writing final IFF ... ")
+    newMsh.write(filepath)        
+    print(f"Done!")
 
     return {'FINISHED'}

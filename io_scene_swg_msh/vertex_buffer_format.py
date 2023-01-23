@@ -118,3 +118,54 @@ def getTextureCoordinateSetDimension(flags, textureCoordinateSet):
     shift = int(TextureCoordinateSetDimensionBaseShift) + (textureCoordinateSet * int(TextureCoordinateSetDimensionPerSetShift))
     before_adjustment = ((flags >> shift) & TextureCoordinateSetDimensionMask) 
     return before_adjustment + TextureCoordinateSetDimensionAdjustment
+
+def setPosition(flags, enabled):
+    if (enabled):
+        flags |= F_position
+    else:
+        flags &= ~F_position
+    return flags
+
+def setTransformed(flags, enabled):
+    if (enabled):
+        flags |= F_transformed
+    else:
+        flags &= ~F_transformed
+    return flags
+
+def setNormal(flags,  enabled):
+    if (enabled):
+        flags |= F_normal
+    else:
+        flags &= ~F_normal
+    return flags
+        
+def setPointSize(flags,  enabled):
+    if(enabled):
+        flags |= F_pointSize
+    else:
+        flags &= ~F_pointSize
+    return flags
+
+def setColor0(flags,  enabled):
+    if (enabled):
+        flags |= F_color0
+    else:
+        flags &= ~F_color0
+    return flags
+
+def setColor1(flags,  enabled):
+    if (enabled):
+        flags |= F_color1
+    else:
+        flags &= ~F_color1
+    return flags
+
+def setNumberOfTextureCoordinateSets(flags, numberOfTextureCoordinateSets):
+    flags = (flags & ~(TextureCoordinateSetCountMask << TextureCoordinateSetCountShift)) | ((numberOfTextureCoordinateSets) << TextureCoordinateSetCountShift)
+    return flags
+
+def setTextureCoordinateSetDimension(flags, textureCoordinateSet, dimension):
+    shift = (TextureCoordinateSetDimensionBaseShift + (textureCoordinateSet * TextureCoordinateSetDimensionPerSetShift))
+    flags = (flags & ~((TextureCoordinateSetDimensionMask) << shift)) | ((dimension - TextureCoordinateSetDimensionAdjustment) << shift)
+    return flags

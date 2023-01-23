@@ -21,12 +21,14 @@
 # SOFTWARE.
 
 import base64, os, bpy
+import bmesh
 
 from bpy_extras.io_utils import unpack_list
 from bpy_extras.image_utils import load_image
 from bpy_extras.wm_utils.progress_report import ProgressReport
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
 
+from . import vertex_buffer_format
 from . import swg_types
 
 def load_new(context,
@@ -86,6 +88,8 @@ def load_new(context,
         mesh.transform(global_matrix)
         mesh.update()
 
+        
+
         # Create a new UVMap for each uv set
         for i in range(0, len(face_uvs)):
             uv_layer = mesh.uv_layers.new(name=f'UVMap-{str(i)}')
@@ -94,6 +98,18 @@ def load_new(context,
         name=os.path.basename(filepath).rsplit( ".", 1 )[ 0 ]
         obj = bpy.data.objects.new(f'{name}-{str(sps.no)}', mesh)
         context.collection.objects.link(obj)
+
+        bm = bmesh.new()   # create an empty BMesh
+        bm.from_mesh(mesh)   # fill it in from a Mesh
+        
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.01)
+        
+        # Finish up, write the bmesh back to the mesh
+        bm.to_mesh(mesh)
+        bm.free()  # free and prevent further access
+        
+        mesh.validate()    
+        mesh.update()
 
         #self.hardpoints.append([rotXx, rotXy, rotXz, posX(3), rotYx, rotYy, rotYz, posY(7), rotZx, rotZy, rotZz, posZ(11), hpntName(12)])
         #only apply hardpoints to sps index 0 so we don't get duplicates
@@ -114,7 +130,9 @@ def load_new(context,
         obj["Shader"] = sps.shader
         obj["Collision"] = base64.b64encode(msh.collision).decode('ASCII')
         obj["Floor"] = msh.floor
-        
+        obj["UVSets"] =  sps.getNumUVSets()
+        obj["DOT3"] = sps.hasDOT3()
+
         if obj.get('_RNA_UI') is None:
             obj['_RNA_UI'] = {}
 

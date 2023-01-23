@@ -34,13 +34,18 @@ bl_info = {
 }
 
 if "bpy" in locals():
-        import importlib
-        importlib.reload(import_msh)
-        importlib.reload(export_msh)
+    import importlib
+    importlib.reload(import_msh)
+    importlib.reload(export_msh)
+    importlib.reload(swg_types)
+    importlib.reload(nsg_iff)
+    importlib.reload(vertex_buffer_format)
 else:
-        from . import import_msh
-        from . import export_msh
-
+    from . import import_msh
+    from . import export_msh
+    from . import swg_types
+    from . import nsg_iff
+    from . import vertex_buffer_format
 
 import bpy
 from bpy.props import (

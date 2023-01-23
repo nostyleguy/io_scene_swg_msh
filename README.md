@@ -4,7 +4,12 @@ A Blender add-on for importing and exporting Star Wars Galaxies static mesh file
 Should work with Blender 2.9+ and 3+
 ## Features
 * Import and Export SWG .msh file (versions 0004 and 0005)
-* UVs: Imports UVs, including multiple sets, though for now, only UV0 will be exported
+* UVs: Imports first UV set into a UV Map, and also imports the number of (non-DOT3) UV sets in the .msh as a Custom Property
+  * Multiple UV sets in SWG seem to get used for other textures in a shader (e.g. specular), but they're always duplicates of the first UV set (or a uniformly scaled copy)
+  * For now, I'm not importing the 2nd+ UVs, but just importing the total number and storing it in the "UVSets" custom property.
+  * On Export, the exporter duplicates the first UV set as many times as specified by the "UVSets" custom property. 
+* DOT3: Imports the existance (or not) of DOT3 normalmap coordinates (tangents?), but not the tangents themselves since Blender will reclaculate these. Stored in the "DOT3" custom property per mesh.
+  * Exports DOT3 (tangents) per-mesh based on the DOT3 custom property. 1 = yes, 0 (or not present) = no.  
 * Normals: Imported Normals are not used. Blender recomputes them and I couldn't find an API to force the original ones. 
 * Vertex Colors: Not supported (can read a mesh with them, but will be unused and lost). No export support.
 * Extents: Automatically compute Extents (box and sphere)

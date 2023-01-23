@@ -66,6 +66,19 @@ class SPS(object):
         self.verts = verts
         self.tris = tris
 
+    def hasDOT3(self):
+        num_uv_sets = vertex_buffer_format.getNumberOfTextureCoordinateSets(self.flags)
+        if(num_uv_sets > 0):
+            return (vertex_buffer_format.getTextureCoordinateSetDimension(self.flags, num_uv_sets - 1) == 4)
+        return False
+
+    def getNumUVSets(self):
+        num_uv_sets = vertex_buffer_format.getNumberOfTextureCoordinateSets(self.flags)
+        if(num_uv_sets > 0):
+            if(vertex_buffer_format.getTextureCoordinateSetDimension(self.flags, num_uv_sets - 1) == 4):
+                num_uv_sets -= 1
+        return num_uv_sets
+
     def __str__(self):
         return f"SPS_No: {self.no} Shader: {self.shader} Flags: {self.flags} Verts: {len(self.verts)} Tris: {len(self.tris)}"
 
@@ -322,7 +335,7 @@ class SWGMesh(object):
         return True
             
     def write(self, filename):
-        iff = nsg_iff.IFF(initial_size=10000)
+        iff = nsg_iff.IFF(initial_size=4000000)
         # - BEGIN MESH        
         iff.insertForm("MESH")
         iff.insertForm("0005")
@@ -435,17 +448,22 @@ class SWGMesh(object):
             iff.insertForm("VTXA")
             iff.insertForm("0003")
             iff.insertChunk("INFO")
-            iff.insert_uint32(4357)
+            #iff.insert_uint32(4357)
+            #iff.insert_uint32(53765)
+            iff.insert_uint32(sps.flags)
             iff.insert_uint32(len(sps.verts))
             iff.exitChunk("INFO")
             iff.insertChunk("DATA")
             for v in sps.verts:
                 iff.insertFloatVector3((v.pos.x, v.pos.y, v.pos.z))
                 iff.insertFloatVector3((v.normal.x, v.normal.y, v.normal.z))
-                if len(v.texs) > 0 and (len(v.texs[0]) > 0):
-                    iff.insertFloatVector2((v.texs[0][0], v.texs[0][1]))
-                else:                    
-                    iff.insertFloatVector2((0,0))
+                # if len(v.texs) > 0 and (len(v.texs[0]) > 0):
+                #     iff.insertFloatVector2((v.texs[0][0], v.texs[0][1]))
+                # else:                    
+                #     iff.insertFloatVector2((0,0))
+                for uv_set in v.texs:
+                    for value in uv_set:
+                        iff.insertFloat(value)
             iff.exitChunk("DATA")
             iff.exitForm("0003")
             iff.exitForm("VTXA")
