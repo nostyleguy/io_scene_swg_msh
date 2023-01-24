@@ -1,5 +1,8 @@
 import struct, io, builtins, os
+import time
+import datetime
 
+timesExpanded = 0
 class StackFrame():
     def __init__(self, start, length, used):
         self.start = start
@@ -22,12 +25,14 @@ class IFF():
         self.data = None
         self.stack_depth = 0
         self.in_chunk = False
+        self.timesExpanded = 0
 
         if filename != "":
             self.open_file(filename)
         else:
             self.length = initial_size
             self.data = bytearray(initial_size)
+            #s = StackFrame(0, self.length, 0)
             s = StackFrame(0, 0, 0)
             self.stack.append(s)
 
@@ -179,96 +184,75 @@ class IFF():
     def read_float(self):
         return struct.unpack('f', self.read_misc(4))[0]
 
+
     def adjustDataAsNeeded(self, size):
-        
-        #// calculate the final required size of the data array
         neededLength = self.stack[0].length + size
 
-        #print(f'Current: {self.stack[0].length} Needed: {neededLength}')
+        # check if we need to expand the data array
+        if neededLength > self.length:
+            newLength = 0
 
-        #//NOT_NULL(data);
-        #//IFF_DEBUG_FATAL(neededLength < 0, ("data size underflow"));
+            # handle when the iff is created with an initial size of 0, this fixes
+            # an infinite looping problem
+            if self.length <= 0:
+                self.length = 1
 
-        #// check if we need to expand the data array
-        if neededLength > self.stack[0].length:
-            length = len(self.data)
-            newLength = 1
-
-            #// make sure the iff was growable
-            #//DEBUG_FATAL(!growable, ("data size overflow %d/%d", neededLength, length));
-            #//DEBUG_FATAL(length < 0, ("current length negative %d\n", length));
-
-            #// handle when the iff is created with an initial size of 0, this fixes
-            #// an infinite looping problem
-            if len(self.data) <= 0:
-                length = 1
-
-            #// double in size until it supports the needed length
-            # for (newLength = length * 2; newLength < neededLength; newLength *= 2)
-            #     ;
+            # double in size until it supports the needed length
+            newLength = 2 * self.length
             while newLength < neededLength:
                 newLength *= 2
 
-            #print(f"Need: {neededLength} was {len(self.data)} New {newLength}")
-            #// allocate the new memory
-            #//DEBUG_FATAL(newLength < 0, ("negative array allocation"));
+            # allocate the new memory
             newData = bytearray(newLength)
-            #//NOT_NULL(newData);
 
-            #// copy the old data over to the new data
-            #Array.Copy(data, newData, stack[0].length);
+            # copy the old data over to the new data
             newData[0:len(self.data)] = self.data
 
-            #// replace the old data with the new data
-            #data = null;
+            # replace the old data with the new data
             self.data = newData
-            #length = newLength;
+            self.length = newLength
+            print(f"Grew data. Total: {len(self.data)} Needed: {str(neededLength)} NewLength: {str(newLength)} Stack length: {str(self.stack[0].length)} Times expanded: {str(self.timesExpanded)}" )
+            self.timesExpanded +=1
         else:
-            print(f'Required length: {neededLength} is met by current length: {len(self.data)}')
+            #print(f'Required length: {neededLength} is met by current length: {len(self.data)}')
+            pass
 
-        #// move data around to either make room or remove data
+        # move data around to either make room or remove data
         offset = self.stack[self.stack_depth].start + self.stack[self.stack_depth].used
         lengthToEnd = self.stack[0].length - offset
-        if (size > 0):
-            #Array.Copy(data, offset, data, offset + size, lengthToEnd);
+
+        if size > 0:
+            #memmove(data+offset+size, data+offset, lengthToEnd);
             temp = self.data[offset:(offset + lengthToEnd)]
             self.data[offset+size:(offset+size+lengthToEnd)] = temp
         else:
-            #Array.Copy(data, offset - size, data, offset, lengthToEnd + size);
+            #memmove(data+offset, data+offset-size, lengthToEnd+size);
             temp = self.data[offset-size:offset+lengthToEnd]
             self.data[offset:offset+lengthToEnd+size] = temp
 
-        #// make sure all the enclosing stack entries know about the changed size
-        i = 0
-        while i <= self.stack_depth:
-            #// update the stack's idea of the block length
+        #make sure all the enclosing stack entries know about the changed size
+        for i in range(0, len(self.stack)):
+            #update the stack's idea of the block length
             s = self.stack[i]
             s.length = s.length + size
             self.stack[i] = s
-            #print(f'Stack now: {str(self.stack)}')
-            #// the length of level 0 is the file size, so we should not write it
-            if i != 0:
-                #// update the data's idea of the block length
-                if (i == self.stack_depth) and self.inChunk:
-                    #//int ui32 = static_cast<int>(htonl(static_cast < unsigned long > (stack[i].length)));
-                    size_bytes = int.to_bytes(self.stack[i].length, 4, byteorder="big", signed=False)
-                    
-                    #Array.Copy(ui32, 0, data, stack[i].start - 4, 4);
-                    self.data[self.stack[i].start - 4:self.stack[i].start] = size_bytes
-                    #//memcpy(data + stack[i].start - sizeof(uint32), &ui32, sizeof(uint32));
-                
-                else:
-                    #// account for forms start beyond the first 4 data bytes, which is their real form name
-                    #//const int ui32 = static_cast<int>(htonl(static_cast < unsigned long > (stack[i].length) + sizeof(Tag)));
-                    #byte[] ui32 = ToBytes(stack[i].length + 4);
-                    #EndianSwap(ref ui32);
-                    size_bytes = int.to_bytes(self.stack[i].length + 4, 4, byteorder='big', signed=False)
-                    #//Debug.LogFormat("Copying from: Start: {0} minus 8: {1}", stack[i].start, stack[i].start - 8);
-                    #Array.Copy(ui32, 0, data, stack[i].start - 8, 4);
-                    self.data[self.stack[i].start - 8:self.stack[i].start - 4] = size_bytes
-                    #//memcpy(data + stack[i].start - sizeof(Tag) - sizeof(uint32), &ui32, sizeof(uint32));
-            i += 1
 
+            # the length of level 0 is the file size, so we should not write it
+            if i != 0:
+                # update the data's idea of the block length
+                if (i == self.stack_depth) and self.inChunk:
+                    #const int ui32 = static_cast<int>(htonl(static_cast<unsigned long>(stack[i].length)));
+                    size_bytes = int.to_bytes(self.stack[i].length, 4, byteorder="big", signed=False)
+                    #memcpy(data+stack[i].start-sizeof(uint32), &ui32, sizeof(uint32));
+                    self.data[self.stack[i].start - 4:self.stack[i].start] = size_bytes
+                else:
+                    # account for forms start beyond the first 4 data bytes, which is their real form name
+                    #const int ui32 = static_cast<int>(htonl(static_cast<unsigned long>(stack[i].length) + sizeof(Tag)));
+                    size_bytes = int.to_bytes(self.stack[i].length + 4, 4, byteorder='big', signed=False)
+                    #memcpy(data+stack[i].start-sizeof(Tag)-sizeof(uint32), &ui32, sizeof(uint32));
+                    self.data[self.stack[i].start - 8:self.stack[i].start - 4] = size_bytes
+   
+            
     def insertForm(self, name, shouldEnterForm = True):
         FORM_OVERHEAD = 4 + 4 + 4
 
@@ -412,50 +396,9 @@ class IFF():
 
     def write(self, file_path):
         #print(f'self.length: {self.length} len(data): {len(self.data)} stack[0].length: {self.stack[0].length} stack[0].used: {self.stack[0].used}')
+        t = time.time()
         f = builtins.open(file_path, 'wb')
         f.write(self.data[0:self.stack[0].length])
         f.close()
-
-
-
-# iff = IFF(initial_size=0)
-# print(str(iff.stack))
-# iff.insertForm("MESH")
-# iff.insertForm("0005")
-# iff.insertForm("APPR")
-# iff.insertChunk("TEST")
-# iff.insertChunkString("This/is/a/string")
-# iff.insertChunkString("Another One!!")
-# iff.exitChunk("TEST")
-# iff.insertChunk("ABCD")
-# iff.insertFloat(1)
-# iff.insertFloat(69)
-# iff.exitChunk("ABCD")
-# iff.exitForm()
-# iff.insertForm("SPS ")
-# iff.insertChunk("TEST")
-# iff.insert_int32(2147483647)
-# iff.exitChunk("TEST")
-# iff.insertChunk("ABCD")
-# iff.insert_int16(32767)
-# iff.insert_int16(-32768)
-# iff.exitChunk("ABCD")
-# iff.exitForm()
-
-# iff2 = IFF(initial_size=0)
-# iff2.insertForm("NEW ")
-# iff2.insertIff(iff)
-
-
-# iff2.write("test2.iff")
-
-# print(f'Bytes: {iff.data} Len: {len(iff.data)}')
-
-# iff = IFF(filename="tie_advanced_l0.msh")
-# print(iff.enterForm("MESH"))
-# print(iff.enterForm("0005"))
-# iff.enterForm("APPR")
-# iff.exitForm()
-# iff.enterForm("SPS ")
-
-# 711 -  Normal In: 0.6141982078552246,-0.7461375594139099,0.25698116421699524
+        now = time.time() 
+        #print("Writing data took: " + str(datetime.timedelta(seconds=(now - t))))

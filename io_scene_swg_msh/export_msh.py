@@ -24,6 +24,7 @@ import os
 import bpy
 import base64
 import bmesh
+import time, datetime
 from . import vector3D
 from . import swg_types
 from . import vertex_buffer_format
@@ -51,6 +52,7 @@ def save(context,
          flip_uv_vertical=False
          ):
     
+    t = time.time()
     print(f'Exporting msh: {filepath} Flip UV: {flip_uv_vertical}')
 
     def veckey2d(v):
@@ -247,8 +249,9 @@ def save(context,
     newMsh.extents.append((extreme_g_x, extreme_g_y, extreme_g_z))
     newMsh.extents.append((extreme_l_x, extreme_l_y, extreme_l_z))
        
-    print(f"Writing final IFF ... ")
-    newMsh.write(filepath)        
-    print(f"Done!")
+    print(f"Assembling final IFF ... ")
+    newMsh.write(filepath)
+    now = time.time()        
+    print(f"Successfully wrote: {filepath} Duration: " + str(datetime.timedelta(seconds=(now-t))))
 
     return {'FINISHED'}

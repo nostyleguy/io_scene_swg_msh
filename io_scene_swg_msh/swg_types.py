@@ -335,7 +335,7 @@ class SWGMesh(object):
         return True
             
     def write(self, filename):
-        iff = nsg_iff.IFF(initial_size=4000000)
+        iff = nsg_iff.IFF(initial_size=100000)
         # - BEGIN MESH        
         iff.insertForm("MESH")
         iff.insertForm("0005")
