@@ -10,7 +10,7 @@ Should work with Blender 2.9+ and 3+
   * On Export, the exporter duplicates the first UV set as many times as specified by the "UVSets" custom property. 
 * DOT3: Imports the existance (or not) of DOT3 normalmap coordinates (tangents?), but not the tangents themselves since Blender will reclaculate these. Stored in the "DOT3" custom property per mesh.
   * Exports DOT3 (tangents) per-mesh based on the DOT3 custom property. 1 = yes, 0 (or not present) = no.  
-* Normals: Imported Normals are not used. Blender recomputes them and I couldn't find an API to force the original ones. 
+* Normals: Imported normals are stored in Blenders' split normals. Split normals are exported. 
 * Vertex Colors: Not supported (can read a mesh with them, but will be unused and lost). No export support.
 * Extents: Automatically compute Extents (box and sphere)
 * Collision Extents: Reads CollisionExtents and stores their binary data in a Custom Property so they can be exported. No edit support, but non-destructive 

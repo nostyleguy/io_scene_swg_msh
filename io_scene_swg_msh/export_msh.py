@@ -24,10 +24,11 @@ import os
 import bpy
 import base64
 import bmesh
-import time, datetime
+import time, datetime, array
 from . import vector3D
 from . import swg_types
 from . import vertex_buffer_format
+from . import data_types
 
 from mathutils import Matrix, Vector, Color
 from bpy_extras import io_utils, node_shader_utils
@@ -52,7 +53,7 @@ def save(context,
          flip_uv_vertical=False
          ):
     
-    t = time.time()
+    start = time.time()
     print(f'Exporting msh: {filepath} Flip UV: {flip_uv_vertical}')
 
     def veckey2d(v):
@@ -98,6 +99,11 @@ def save(context,
                         ob.matrix_world[2][0], ob.matrix_world[2][1], ob.matrix_world[2][2], ob.matrix_world[2][3],
                         ob.matrix_world[1][0], ob.matrix_world[1][1], ob.matrix_world[1][2], ob.matrix_world[1][3], "sphere"])
                 continue
+            
+
+            #If negative scaling, we have to invert the normals...
+            if ob_mat.determinant() < 0.0:
+                me.flip_normals()
 
             curr_sps_number += 1
 
@@ -134,25 +140,34 @@ def save(context,
             me = ob.to_mesh()
             me.transform(global_matrix @ ob_mat)
 
-            mesh_triangulate(me)
+            mesh_triangulate(me)  
+    
+            me.calc_normals_split()
+
+            t_ln = array.array(data_types.ARRAY_FLOAT64, (0.0,)) * len(me.loops) * 3
+            me.loops.foreach_get("normal", t_ln)
+            normals = list(map(list, zip(*[iter(t_ln)]*3)))
 
             tang_lib = []
             me.calc_tangents()
-            for i, loop in enumerate(me.loops):
-                a = loop.tangent[:]
-                b = list(a)
-                b.insert(3, 1.0)
-                b = tuple(b)
-                tang_lib.append(b[:])
-                #print(f"Tagent {str(i)}: {str(a)} changed to {str(b)}")
+            t_ln = array.array(data_types.ARRAY_FLOAT64, [0.0,]) * len(me.loops) * 3
+            uv_names = [uvlayer.name for uvlayer in me.uv_layers]
+            for name in uv_names:
+                print(f"Did tangents for UV map: {name}")
+                me.calc_tangents(uvmap=name)
+            for idx, uvlayer in enumerate(me.uv_layers):
+                name = uvlayer.name
+                me.loops.foreach_get("tangent", t_ln)  
+                tangents = list(map(list, zip(*[iter(t_ln)]*3)))
 
-            #If negative scaling, we have to invert the normals...
-            if ob_mat.determinant() < 0.0:
-                me.flip_normals()
+            for t in tangents:
+                t.insert(3, 1.0)
+                tang_lib.append(t)
             
             faceuv = len(me.uv_layers) > 0
             if faceuv:
                 uv_layer = me.uv_layers.active.data[:]
+                #print(f'UVs: {len(me.uv_layers.active.data)}')
 
             me_verts = me.vertices[:]
             loops = me.loops
@@ -160,6 +175,7 @@ def save(context,
             #print("Mesh:" , str(me))
             face_index_pairs = [(face, index) for index, face in enumerate(me.polygons)]
             uv_face_mapping = [None] * len(face_index_pairs)
+            #print(f"Face Index Pairs: {str(face_index_pairs)}")
             uv_dict = {}
             uv_get = uv_dict.get
             uv_unique_count = 0
@@ -177,15 +193,17 @@ def save(context,
             uv_dict = {}
             uv_get = uv_dict.get
             i = 0
+
+            vert5d = set()
             for f, f_index in face_index_pairs:
                 #print(f'New face: {str(i)}: {f}')
                 i += 1
                 uv_ls = uv_face_mapping[f_index] = []
                 p1 = p2 = p3 = None
                 for uv_index, l_index in enumerate(f.loop_indices):
-                    #print(f'  New uv: {str(uv_index)}: {l_index}')
                     uv = uv_layer[l_index].uv
-
+                    #print(f' Vert: {loops[l_index].vertex_index} is UV: {str(l_index)}  New uv: {str(uv_index)}: {uv}')
+                    vert5d.add((loops[l_index].vertex_index, l_index))
                     if flip_uv_vertical:
                         uv[1] = 1 - uv[1]
                     # include the vertex index in the key so we don't share UV's between vertices,
@@ -211,7 +229,7 @@ def save(context,
                         p3 = l_index
                         thisSPS.tris.append(swg_types.Triangle(p3, p2, p1))
                         p1 = p2 = p3 = None
-
+            #print(f'Unique Verts: {str(vert5d)}')
             del uv_dict, uv, f_index, uv_index, uv_ls, uv_get, uv_key, uv_val               
             
             for f, f_index in face_index_pairs:
@@ -235,13 +253,14 @@ def save(context,
 
                     swg_v = swg_types.SWGVertex()
                     swg_v.pos = vector3D.Vector3D(-v.co[0], v.co[1], v.co[2])
-                    swg_v.normal = vector3D.Vector3D(-v.normal[0], v.normal[1], v.normal[2])
-
+                    #swg_v.normal = vector3D.Vector3D(-v.normal[0], v.normal[1], v.normal[2])
+                    swg_v.normal = vector3D.Vector3D(-normals[li][0], normals[li][1], normals[li][2])
                     for i in range(0, uvSets):                        
                         swg_v.texs.append(final_uvs[uv_face_mapping[f_index][vi]])
 
                     if doDOT3:
-                        swg_v.texs.append(tang_lib[li])
+                        swg_v.texs.append([-tang_lib[li][0],tang_lib[li][1],tang_lib[li][2],tang_lib[li][3]])
+                        print(f"Using tang: {str(li)} from face {str(f_v)}")
 
                     thisSPS.verts.append(swg_v)
             newMsh.spss.append(thisSPS)
@@ -251,7 +270,7 @@ def save(context,
        
     print(f"Assembling final IFF ... ")
     newMsh.write(filepath)
-    now = time.time()        
-    print(f"Successfully wrote: {filepath} Duration: " + str(datetime.timedelta(seconds=(now-t))))
+    now = time.time()
+    print(f"Successfully wrote: {filepath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
 
     return {'FINISHED'}

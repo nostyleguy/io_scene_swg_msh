@@ -69,8 +69,15 @@ def load_new(context,
             #print("Added Vert: %d : Pos: %s Normal: %s UV: %s" % (i, str(vert.pos), str(vert.normal), str(vert.texs)))
             i += 1
         faces = [] # list of lists of uvs
+        normals=[]
         for tri in sps.tris:
             faces.append((tri.p3, tri.p2, tri.p1))
+            p3n = sps.verts[tri.p3].normal
+            p2n = sps.verts[tri.p2].normal
+            p1n = sps.verts[tri.p1].normal
+            normals.append([-p3n.x, p3n.y, p3n.z])
+            normals.append([-p2n.x, p2n.y, p2n.z])
+            normals.append([-p1n.x, p1n.y, p1n.z])
             for i in range(0, len(uvs)):
                 if (len(face_uvs) - 1) < i:
                     face_uvs.append([])
@@ -83,6 +90,10 @@ def load_new(context,
 
         mesh = bpy.data.meshes.new(name=str(sps.no))
         mesh.from_pydata(verts, edges, faces)
+        
+        mesh.use_auto_smooth = True
+        mesh.normals_split_custom_set(normals)
+
         #mesh.create_normals_split()
         # we could apply this anywhere before scaling.
         mesh.transform(global_matrix)
@@ -108,6 +119,12 @@ def load_new(context,
         bm.to_mesh(mesh)
         bm.free()  # free and prevent further access
         
+        
+        #mesh = bpy.context.collection.objects["Cube"].data
+        # mesh.attributes.new(name="TEST", type="FLOAT", domain="POINT")
+        # attribute_values = [i for i in range(len(mesh.vertices))]   
+        # mesh.attributes["TEST"].data.foreach_set("value", attribute_values)
+
         mesh.validate()    
         mesh.update()
 
