@@ -147,22 +147,10 @@ def save(context,
             t_ln = array.array(data_types.ARRAY_FLOAT64, (0.0,)) * len(me.loops) * 3
             me.loops.foreach_get("normal", t_ln)
             normals = list(map(list, zip(*[iter(t_ln)]*3)))
-
-            tang_lib = []
-            me.calc_tangents()
-            t_ln = array.array(data_types.ARRAY_FLOAT64, [0.0,]) * len(me.loops) * 3
+            
             uv_names = [uvlayer.name for uvlayer in me.uv_layers]
             for name in uv_names:
-                print(f"Did tangents for UV map: {name}")
                 me.calc_tangents(uvmap=name)
-            for idx, uvlayer in enumerate(me.uv_layers):
-                name = uvlayer.name
-                me.loops.foreach_get("tangent", t_ln)  
-                tangents = list(map(list, zip(*[iter(t_ln)]*3)))
-
-            for t in tangents:
-                t.insert(3, 1.0)
-                tang_lib.append(t)
             
             faceuv = len(me.uv_layers) > 0
             if faceuv:
@@ -259,8 +247,9 @@ def save(context,
                         swg_v.texs.append(final_uvs[uv_face_mapping[f_index][vi]])
 
                     if doDOT3:
-                        swg_v.texs.append([-tang_lib[li][0],tang_lib[li][1],tang_lib[li][2],tang_lib[li][3]])
-                        print(f"Using tang: {str(li)} from face {str(f_v)}")
+                        loop = me.loops[li]
+                        tang = loop.tangent
+                        swg_v.texs.append([ -tang[0], tang[2], tang[1], loop.bitangent_sign])
 
                     thisSPS.verts.append(swg_v)
             newMsh.spss.append(thisSPS)

@@ -23,7 +23,7 @@
 bl_info = {
     "name": "SWG Mesh (.msh) Import/Export",
     "author": "Nick Rafalski",
-    "version": (1, 0, 7),
+    "version": (1, 0, 8),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh",
@@ -101,8 +101,8 @@ class ImportMSH(bpy.types.Operator, ImportHelper):
 
         result = import_msh.load_new(context, **keywords)
         if 'ERROR' in result:
-                self.report({'ERROR'}, 'Something went wrong importing MESH')
-                return {'CANCELLED'}
+            self.report({'ERROR'}, 'Something went wrong importing MESH')
+            return {'CANCELLED'}
         
         return {'FINISHED'}
 

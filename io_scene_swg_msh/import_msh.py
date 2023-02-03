@@ -110,14 +110,14 @@ def load_new(context,
         obj = bpy.data.objects.new(f'{name}-{str(sps.no)}', mesh)
         context.collection.objects.link(obj)
 
-        bm = bmesh.new()   # create an empty BMesh
-        bm.from_mesh(mesh)   # fill it in from a Mesh
+        # bm = bmesh.new()   # create an empty BMesh
+        # bm.from_mesh(mesh)   # fill it in from a Mesh
         
-        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.01)
+        # bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.01)
         
-        # Finish up, write the bmesh back to the mesh
-        bm.to_mesh(mesh)
-        bm.free()  # free and prevent further access
+        # # Finish up, write the bmesh back to the mesh
+        # bm.to_mesh(mesh)
+        # bm.free()  # free and prevent further access
         
         
         #mesh = bpy.context.collection.objects["Cube"].data
