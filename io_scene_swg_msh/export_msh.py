@@ -182,7 +182,8 @@ def save(context,
             uv_get = uv_dict.get
             i = 0
 
-            vert5d = set()
+            vert5d = set()  
+            indecies = set()
             for f, f_index in face_index_pairs:
                 #print(f'New face: {str(i)}: {f}')
                 i += 1
@@ -216,8 +217,11 @@ def save(context,
                     elif p3 == None:
                         p3 = l_index
                         thisSPS.tris.append(swg_types.Triangle(p3, p2, p1))
+                        indecies.add(p3)
+                        indecies.add(p2)
+                        indecies.add(p1)
                         p1 = p2 = p3 = None
-            #print(f'Unique Verts: {str(vert5d)}')
+
             del uv_dict, uv, f_index, uv_index, uv_ls, uv_get, uv_key, uv_val               
             
             for f, f_index in face_index_pairs:
@@ -249,10 +253,11 @@ def save(context,
                     if doDOT3:
                         loop = me.loops[li]
                         tang = loop.tangent
-                        swg_v.texs.append([ -tang[0], tang[2], tang[1], loop.bitangent_sign])
+                        swg_v.texs.append([ -tang[0], tang[1], tang[2], loop.bitangent_sign])
 
                     thisSPS.verts.append(swg_v)
-            newMsh.spss.append(thisSPS)
+            newMsh.spss.append(thisSPS)            
+            #print(f'Unique Verts: {str(len(indecies))} Total: {len(thisSPS.verts)} Unqiue: {str(len(vert5d))}')
     
     newMsh.extents.append((extreme_g_x, extreme_g_y, extreme_g_z))
     newMsh.extents.append((extreme_l_x, extreme_l_y, extreme_l_z))

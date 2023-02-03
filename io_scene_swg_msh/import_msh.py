@@ -35,7 +35,8 @@ def load_new(context,
              filepath,
              *,     
              global_matrix=None,
-             flip_uv_vertical=False
+             flip_uv_vertical=False,
+             remove_duplicate_verts=True,
              ):
     print(f'Importing msh: {filepath} Flip UV: {flip_uv_vertical}')
     
@@ -43,12 +44,9 @@ def load_new(context,
     if not msh.load():
         return {'ERROR'}
 
-    for i in range(len(msh.spss)):
-        index = i
-        sps = msh.spss[i]
+    for index, sps in enumerate(msh.spss):
         
         verts = []
-        #normals = []
         uvs = []
 
         i=0
@@ -68,6 +66,7 @@ def load_new(context,
 
             #print("Added Vert: %d : Pos: %s Normal: %s UV: %s" % (i, str(vert.pos), str(vert.normal), str(vert.texs)))
             i += 1
+
         faces = [] # list of lists of uvs
         normals=[]
         for tri in sps.tris:
@@ -110,14 +109,15 @@ def load_new(context,
         obj = bpy.data.objects.new(f'{name}-{str(sps.no)}', mesh)
         context.collection.objects.link(obj)
 
-        # bm = bmesh.new()   # create an empty BMesh
-        # bm.from_mesh(mesh)   # fill it in from a Mesh
-        
-        # bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.01)
-        
-        # # Finish up, write the bmesh back to the mesh
-        # bm.to_mesh(mesh)
-        # bm.free()  # free and prevent further access
+        if remove_duplicate_verts:
+            bm = bmesh.new()
+            bm.from_mesh(mesh)
+            before = len(mesh.vertices)
+            removed = bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
+            bm.to_mesh(mesh)        
+            after = len(mesh.vertices)            
+            print(f"SPS {index}: Removed: {before - after} verts")
+            bm.free()  # free and prevent further access
         
         
         #mesh = bpy.context.collection.objects["Cube"].data

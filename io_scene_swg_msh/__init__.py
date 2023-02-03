@@ -23,7 +23,7 @@
 bl_info = {
     "name": "SWG Mesh (.msh) Import/Export",
     "author": "Nick Rafalski",
-    "version": (1, 0, 8),
+    "version": (1, 0, 9),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh",
@@ -81,6 +81,11 @@ class ImportMSH(bpy.types.Operator, ImportHelper):
             description="SWG seems to interprte the DDS vertical axis opposite as Blender does. Need to flip UVs on import AND export to be able to use Blender UV mapping without being destructive.",
             default=True,
             )
+    remove_duplicate_verts: BoolProperty(
+            name="Remove Duplicate Verts",
+            description="Attempt to remove verts that are probably duplicates (within 0.0001 units of each other)",
+            default=False,
+            )
 
     def execute(self, context):
         from . import import_msh        
@@ -133,6 +138,7 @@ class MSH_PT_import_option(bpy.types.Panel):
         layout.prop(operator, "axis_forward")
         layout.prop(operator, "axis_up")
         layout.prop(operator, 'flip_uv_vertical')
+        layout.prop(operator, 'remove_duplicate_verts')
 
 
 @orientation_helper(axis_forward='Z', axis_up='Y')

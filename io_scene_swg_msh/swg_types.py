@@ -116,7 +116,7 @@ class SWGMesh(object):
 
         num_uv_sets = vertex_buffer_format.getNumberOfTextureCoordinateSets(flags)
         if(num_uv_sets > 0) and (vertex_buffer_format.getTextureCoordinateSetDimension(flags, num_uv_sets - 1) == 4):         
-            print(f'Mesh: {self.filename} SPS: {sps_no} Flags: {flags}: Has deprecated DOT3 UVs. Will skip!')
+            print(f'Mesh: {self.filename} SPS: {sps_no} Flags: {flags}: Has DOT3 UVs')
 
         if vertex_buffer_format.hasPointSize(flags):
             print(f'Mesh: {self.filename} SPS: {sps_no} Flags: {flags}: Has PointSize. Never seen that before! Not doing anything with it FYI')
@@ -225,7 +225,8 @@ class SWGMesh(object):
 
             #hardpoints
             iff.enterForm("HPTS", True, False)
-            while iff.enterChunk("HPNT", True):
+            while not iff.atEndOfForm():
+                iff.enterChunk("HPNT", True)
                 rotXx = iff.read_float()
                 rotXy = iff.read_float()
                 rotXz = iff.read_float()

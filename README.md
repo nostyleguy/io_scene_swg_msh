@@ -23,3 +23,4 @@ Should work with Blender 2.9+ and 3+
     * Ctrl+P -> Object 
 * Shader: Shader name of each SPS is read and stored on a Custom Property which will be used at export. 
   * If you are creating a new object from scratch, add a Custom Property named "Shader" with the shader path as the value (e.g: "shader/defaultappearance.sht"). On export, this will be filled in the SPS's shader NAME chunk. 
+* Import option to "Remove Duplicate Verts". Shouldn't be needed in most cases, but will remove verts that are in the same 3D space and merge them. If you attempt to import a mesh exported by this tool, you'll see how each vert in each tri is unique (instead of shared at the corners), which can make it hard to edit the mesh. This option will merge those verts again, so common vert corners are shared among triangles. 
