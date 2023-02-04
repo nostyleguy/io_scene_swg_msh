@@ -100,10 +100,6 @@ class ImportMSH(bpy.types.Operator, ImportHelper):
                                         ).to_4x4()
         keywords["global_matrix"] = global_matrix
 
-        # if bpy.data.is_saved and context.preferences.filepaths.use_relative_paths:
-        #     import os
-        #     keywords["relpath"] = os.path.dirname(bpy.data.filepath)
-
         result = import_msh.load_new(context, **keywords)
         if 'ERROR' in result:
             self.report({'ERROR'}, 'Something went wrong importing MESH')

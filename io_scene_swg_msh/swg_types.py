@@ -24,7 +24,7 @@ import math
 from . import nsg_iff
 from . import vector3D
 from . import vertex_buffer_format
-
+ 
 class SWGVertex(object):
     __slots = ('pos', 'normal', 'color', 'texs')
     def __init__(self):
@@ -78,6 +78,12 @@ class SPS(object):
             if(vertex_buffer_format.getTextureCoordinateSetDimension(self.flags, num_uv_sets - 1) == 4):
                 num_uv_sets -= 1
         return num_uv_sets
+
+    def stripped_shader_name(self):
+        if self.shader == "":
+            return "defaultappearance"
+        else:
+            return self.shader.split('/')[1].split('.')[0]
 
     def __str__(self):
         return f"SPS_No: {self.no} Shader: {self.shader} Flags: {self.flags} Verts: {len(self.verts)} Tris: {len(self.tris)}"
@@ -322,7 +328,7 @@ class SWGMesh(object):
 
                 iff.exitChunk("INDX")
                 iff.exitForm(version)
-                print(f"SPS {sps_no} Shader: {sht} Version: {version}")
+                print(f"SPS {sps_no} Shader: {sht} Version: {version} Verts: {len(verts)} Tris: {len(indexes)}")
 
                 sps = SPS(sps_no, sht, bit_flag, verts, indexes)
 

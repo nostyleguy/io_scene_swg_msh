@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import base64, os, bpy
+import base64, os, bpy, time, datetime
 import bmesh
 
 from bpy_extras.io_utils import unpack_list
@@ -43,16 +43,37 @@ def load_new(context,
     msh = swg_types.SWGMesh(filepath)
     if not msh.load():
         return {'ERROR'}
-
-    for index, sps in enumerate(msh.spss):
+    
         
-        verts = []
-        uvs = []
+    name=os.path.basename(filepath).rsplit( ".", 1 )[ 0 ]
+    mesh = bpy.data.meshes.new(name=f'{name}-mesh')
+    obj = bpy.data.objects.new(name, mesh)
+    context.collection.objects.link(obj)
 
-        i=0
-        face_uvs = []
+    faces_by_material = {}
+    materials_by_face_index = []
+    normals=[]
+    verts = []    
+    face_uvs = []
+
+    highest_vert_ind=0
+    for index, sps in enumerate(msh.spss):
+        faces_by_material[index] = []
+        mat_name = sps.stripped_shader_name()
+        material = None
+        for mat in bpy.data.materials:
+            if mat.name == mat_name:
+                material = mat
+        if material == None:
+            material = bpy.data.materials.new(sps.stripped_shader_name())    
+            material["Shader"] = sps.shader    
+            material["UVSets"] =  sps.getNumUVSets()
+            material["DOT3"] = sps.hasDOT3()
+
+        mesh.materials.append(material) 
+        uvs = []
         num_uv_sets = 0
-        for vert in sps.verts:
+        for ind, vert in enumerate(sps.verts):
             verts.append((-vert.pos.x, vert.pos.y, vert.pos.z))
             #normals.append((-vert.normal.x,vert.normal.y, vert.normal.z))
 
@@ -65,12 +86,12 @@ def load_new(context,
                 uvs[i].append(vert.texs[i])
 
             #print("Added Vert: %d : Pos: %s Normal: %s UV: %s" % (i, str(vert.pos), str(vert.normal), str(vert.texs)))
-            i += 1
 
-        faces = [] # list of lists of uvs
-        normals=[]
         for tri in sps.tris:
-            faces.append((tri.p3, tri.p2, tri.p1))
+            p3 = tri.p3 + highest_vert_ind
+            p2 = tri.p2 + highest_vert_ind
+            p1 = tri.p1 + highest_vert_ind
+            faces_by_material[index].append((p3, p2, p1))
             p3n = sps.verts[tri.p3].normal
             p2n = sps.verts[tri.p2].normal
             p1n = sps.verts[tri.p1].normal
@@ -81,89 +102,66 @@ def load_new(context,
                 if (len(face_uvs) - 1) < i:
                     face_uvs.append([])
                 face_uvs[i] += [
-                uvs[i][tri.p3][0], uvs[i][tri.p3][1],   # UV for first corner (vertex 2)
-                uvs[i][tri.p2][0], uvs[i][tri.p2][1],   # UV for second corner (vertex 0)
-                uvs[i][tri.p1][0], uvs[i][tri.p1][1],   # UV for third corner (vertex 3)
-            ]
-        edges = []
-
-        mesh = bpy.data.meshes.new(name=str(sps.no))
-        mesh.from_pydata(verts, edges, faces)
-        
-        mesh.use_auto_smooth = True
-        mesh.normals_split_custom_set(normals)
-
-        #mesh.create_normals_split()
-        # we could apply this anywhere before scaling.
-        mesh.transform(global_matrix)
-        mesh.update()
-
-        
-
-        # Create a new UVMap for each uv set
-        for i in range(0, len(face_uvs)):
-            uv_layer = mesh.uv_layers.new(name=f'UVMap-{str(i)}')
-            uv_layer.data.foreach_set("uv", face_uvs[i])
-        
-        name=os.path.basename(filepath).rsplit( ".", 1 )[ 0 ]
-        obj = bpy.data.objects.new(f'{name}-{str(sps.no)}', mesh)
-        context.collection.objects.link(obj)
-
-        if remove_duplicate_verts:
-            bm = bmesh.new()
-            bm.from_mesh(mesh)
-            before = len(mesh.vertices)
-            removed = bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
-            bm.to_mesh(mesh)        
-            after = len(mesh.vertices)            
-            print(f"SPS {index}: Removed: {before - after} verts")
-            bm.free()  # free and prevent further access
-        
-        
-        #mesh = bpy.context.collection.objects["Cube"].data
-        # mesh.attributes.new(name="TEST", type="FLOAT", domain="POINT")
-        # attribute_values = [i for i in range(len(mesh.vertices))]   
-        # mesh.attributes["TEST"].data.foreach_set("value", attribute_values)
-
-        mesh.validate()    
-        mesh.update()
-
-        #self.hardpoints.append([rotXx, rotXy, rotXz, posX(3), rotYx, rotYy, rotYz, posY(7), rotZx, rotZy, rotZz, posZ(11), hpntName(12)])
-        #only apply hardpoints to sps index 0 so we don't get duplicates
-        if index == 0:
-            for hpnts in msh.hardpoints:
-                hpntadded = bpy.data.objects.new(name=hpnts[12], object_data=None)
-                hpntadded.matrix_world = [
-                    [hpnts[0], hpnts[8], hpnts[4], 0.0],
-                    [hpnts[1], hpnts[9], hpnts[5], 0.0],
-                    [hpnts[2], hpnts[10], hpnts[6], 0.0],
-                    [hpnts[3], hpnts[11], hpnts[7], 0.0],
+                    uvs[i][tri.p3][0], uvs[i][tri.p3][1],
+                    uvs[i][tri.p2][0], uvs[i][tri.p2][1],
+                    uvs[i][tri.p1][0], uvs[i][tri.p1][1],
                 ]
-                hpntadded.empty_display_type = "ARROWS"
-                hpntadded.empty_display_size = 0.1 #small display
-                hpntadded.parent = obj
-                bpy.context.collection.objects.link(hpntadded)
-
-        obj["Shader"] = sps.shader
-        obj["Collision"] = base64.b64encode(msh.collision).decode('ASCII')
-        obj["Floor"] = msh.floor
-        obj["UVSets"] =  sps.getNumUVSets()
-        obj["DOT3"] = sps.hasDOT3()
-
-        if obj.get('_RNA_UI') is None:
-            obj['_RNA_UI'] = {}
-
-        obj['_RNA_UI']["Shader"] = {
-            "name": "Shader",
-            "description": "Shader name",
-            }
-        obj['_RNA_UI']["Collision"] = {
-            "name": "Collision",
-            "description": "Collision data",
-            }
-        obj['_RNA_UI']["Floor"] = {
-            "name": "Floor",
-            "description": "Floor name",
-            }
+            materials_by_face_index.append(index)
+        highest_vert_ind += len(sps.verts)
         
+    mesh.from_pydata(verts, [], sum(faces_by_material.values(), []))   
+
+    # for id, face_list in faces_by_material.items():
+    #     print(f"Faces by material: {id}: {len(face_list)}")
+
+    #print(f"Doing material assignment ...")
+    starttime=time.time()
+    for flist in mesh.polygons:
+        flist.material_index = materials_by_face_index[flist.index]
+    #print(f"Done in: " + str(datetime.timedelta(seconds=(time.time()-starttime))))
+
+    #print(f"Applying normals ...")
+    mesh.use_auto_smooth = True
+    mesh.normals_split_custom_set(normals)
+    #print(f"Transforming ...")
+    mesh.transform(global_matrix)      
+
+    #print(f"Making UV maps ...")
+    # Create a new UVMap for each uv set
+    for i in range(0, len(face_uvs)):
+        uv_layer = mesh.uv_layers.new(name=f'UVMap-{str(i)}')
+        uv_layer.data.foreach_set("uv", face_uvs[i])
+
+    if remove_duplicate_verts:
+        #print(f"Removing duplicate verts ...")
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        before = len(mesh.vertices)
+        removed = bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
+        bm.to_mesh(mesh)        
+        after = len(mesh.vertices)            
+        print(f"SPS {index}: Removed: {before - after} verts")
+        bm.free() 
+        #print(f"Done!")
+
+    mesh.update() 
+    mesh.validate()
+
+    for hpnts in msh.hardpoints:
+        hpntadded = bpy.data.objects.new(name=hpnts[12], object_data=None)
+        hpntadded.matrix_world = [
+            [hpnts[0], hpnts[8], hpnts[4], 0.0],
+            [hpnts[1], hpnts[9], hpnts[5], 0.0],
+            [hpnts[2], hpnts[10], hpnts[6], 0.0],
+            [hpnts[3], hpnts[11], hpnts[7], 0.0],
+        ]
+        hpntadded.empty_display_type = "ARROWS"
+        hpntadded.empty_display_size = 0.1 #small display
+        hpntadded.parent = obj
+        bpy.context.collection.objects.link(hpntadded)
+
+    obj["Collision"] = base64.b64encode(msh.collision).decode('ASCII')
+    obj["Floor"] = msh.floor
+    print(f"Success!")
+            
     return {'FINISHED'}
