@@ -82,7 +82,10 @@ def save(context,
     t_ln = array.array(data_types.ARRAY_FLOAT64, (0.0,)) * len(me.loops) * 3
     me.loops.foreach_get("normal", t_ln)
     normals = list(map(list, zip(*[iter(t_ln)]*3)))   
-    main_uvs=me.uv_layers.active.data[:]
+    uv_maps=[]
+    
+    for layer in me.uv_layers:
+        uv_maps.append(layer.data[:])
 
     t_ln = array.array(data_types.ARRAY_FLOAT64, [0.0,]) * len(me.loops) * 3
     uv_names = [uvlayer.name for uvlayer in me.uv_layers]
@@ -111,14 +114,26 @@ def save(context,
             faces_by_material[polygon.material_index] = []   
         faces_by_material[polygon.material_index].append(polygon)
 
+    uv_maps_by_material = {}
+    for index in faces_by_material:
+        uv_maps_by_material[index] = {}
+        mat_name = current_obj.material_slots[index].material.name
+        for uv_map in me.uv_layers:
+            if uv_map.name.startswith(mat_name):
+                num=int(uv_map.name.split('-')[-1])
+                uv_maps_by_material[index][num] = uv_map
+
+    print(f"UVMaps by material: {str(uv_maps_by_material)}")
+
+
     for mat_index, face_list in faces_by_material.items():
 
         material = current_obj.material_slots[mat_index].material            
         thisSPS = swg_types.SPS(mat_index, f'shader/{material.name}.sht', 0, [], [])
 
-        uvSets = 1
-        if "UVSets" in material:
-            uvSets = material["UVSets"]
+        uvSets = len(uv_maps_by_material[mat_index])
+        # if "UVSets" in material:
+        #     uvSets = material["UVSets"]
 
         doDOT3 = False
         if "DOT3" in material:
@@ -142,12 +157,9 @@ def save(context,
             for uv_index, l_index in enumerate(face.loop_indices):
                 v = me.vertices[face.vertices[uv_index]]
                 normal = normals[l_index]
-                uv = main_uvs[l_index].uv
 
-                if flip_uv_vertical:
-                    uv[1] = 1.0 - uv[1]
-
-                rounded = face.vertices[uv_index], veckey2d(normal, uv)
+                test_uv = uv_maps[0][l_index].uv
+                rounded = face.vertices[uv_index], veckey2d(normal, test_uv)
                 if rounded not in unique_verts:
                     unique_verts[rounded] = last_unique_vert_index
                     last_unique_vert_index += 1
@@ -155,7 +167,18 @@ def save(context,
                     swg_v = swg_types.SWGVertex()
                     swg_v.pos = vector3D.Vector3D(-v.co[0], v.co[1], v.co[2])
                     swg_v.normal = vector3D.Vector3D(-normal[0], normal[1], normal[2])
-                    for i in range(0, uvSets):                        
+
+                    for i in range(0, uvSets):
+                        uv = uv_maps_by_material[mat_index][i].data[l_index].uv
+
+                        if flip_uv_vertical:
+                            uv[1] = (1.0 - uv[1])
+                    # for layer in uv_maps:   
+                    #     uv = layer[l_index].uv
+
+                    #     if flip_uv_vertical:
+                    #         uv[1] = 1.0 - uv[1]
+
                         swg_v.texs.append(uv)
 
                     if doDOT3:
@@ -193,7 +216,6 @@ def save(context,
     newMsh.extents.append((extreme_g_x, extreme_g_y, extreme_g_z))
     newMsh.extents.append((extreme_l_x, extreme_l_y, extreme_l_z))
 
-    children = [] 
     for ob in bpy.data.objects: 
         if ob.parent == current_obj: 
             if ob.type != 'MESH' and ob.type == 'EMPTY' and ob.empty_display_type == "ARROWS":

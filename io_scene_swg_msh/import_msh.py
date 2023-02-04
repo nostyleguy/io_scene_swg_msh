@@ -22,6 +22,7 @@
 
 import base64, os, bpy, time, datetime
 import bmesh
+from mathutils import Matrix, Vector
 
 from bpy_extras.io_utils import unpack_list
 from bpy_extras.image_utils import load_image
@@ -38,6 +39,10 @@ def load_new(context,
              flip_uv_vertical=False,
              remove_duplicate_verts=True,
              ):
+    
+    scale_matrix = Matrix.Scale(-1, 4, (1, 0, 0))    
+    #global_matrix @= scale_matrix   
+
     print(f'Importing msh: {filepath} Flip UV: {flip_uv_vertical}')
     
     msh = swg_types.SWGMesh(filepath)
@@ -54,10 +59,18 @@ def load_new(context,
     materials_by_face_index = []
     normals=[]
     verts = []    
-    face_uvs = []
+    face_uvs_by_material = {}
 
     highest_vert_ind=0
+    global_loop_index=0
     for index, sps in enumerate(msh.spss):
+        
+        num_uv_sets = sps.getNumUVSets()
+        
+        face_uvs_by_material[index] = []
+        for i in range(0, num_uv_sets):
+            face_uvs_by_material[index].append([])
+
         faces_by_material[index] = []
         mat_name = sps.stripped_shader_name()
         material = None
@@ -66,49 +79,42 @@ def load_new(context,
                 material = mat
         if material == None:
             material = bpy.data.materials.new(sps.stripped_shader_name())    
-            material["Shader"] = sps.shader    
-            material["UVSets"] =  sps.getNumUVSets()
+            #material["Shader"] = sps.shader    
+            #material["UVSets"] =  sps.getNumUVSets()
             material["DOT3"] = sps.hasDOT3()
 
         mesh.materials.append(material) 
         uvs = []
-        num_uv_sets = 0
         for ind, vert in enumerate(sps.verts):
             verts.append((-vert.pos.x, vert.pos.y, vert.pos.z))
-            #normals.append((-vert.normal.x,vert.normal.y, vert.normal.z))
-
-            num_uv_sets = len(vert.texs)
-            for i in range(0, num_uv_sets):
-                if (len(uvs) - 1) < i:
-                    uvs.append([])
-                if flip_uv_vertical:
-                    vert.texs[i][1] = (1.0 - vert.texs[i][1])
-                uvs[i].append(vert.texs[i])
-
-            #print("Added Vert: %d : Pos: %s Normal: %s UV: %s" % (i, str(vert.pos), str(vert.normal), str(vert.texs)))
 
         for tri in sps.tris:
             p3 = tri.p3 + highest_vert_ind
             p2 = tri.p2 + highest_vert_ind
             p1 = tri.p1 + highest_vert_ind
+            #faces_by_material[index].append((p1, p2, p3))
             faces_by_material[index].append((p3, p2, p1))
             p3n = sps.verts[tri.p3].normal
             p2n = sps.verts[tri.p2].normal
             p1n = sps.verts[tri.p1].normal
+            # normals.append([p1n.x, p1n.y, p1n.z])
+            # normals.append([p2n.x, p2n.y, p2n.z])
+            # normals.append([p3n.x, p3n.y, p3n.z])            
             normals.append([-p3n.x, p3n.y, p3n.z])
             normals.append([-p2n.x, p2n.y, p2n.z])
             normals.append([-p1n.x, p1n.y, p1n.z])
-            for i in range(0, len(uvs)):
-                if (len(face_uvs) - 1) < i:
-                    face_uvs.append([])
-                face_uvs[i] += [
-                    uvs[i][tri.p3][0], uvs[i][tri.p3][1],
-                    uvs[i][tri.p2][0], uvs[i][tri.p2][1],
-                    uvs[i][tri.p1][0], uvs[i][tri.p1][1],
-                ]
+
+            for loop_index, vert_index in enumerate([tri.p3, tri.p2, tri.p1]):
+                vert = sps.verts[vert_index]
+
+                for uvi in range(0, num_uv_sets):
+                    uv = vert.texs[uvi]       
+                    face_uvs_by_material[index][uvi].append([ global_loop_index, uv ])
+
+                global_loop_index += 1
+
             materials_by_face_index.append(index)
         highest_vert_ind += len(sps.verts)
-        
     mesh.from_pydata(verts, [], sum(faces_by_material.values(), []))   
 
     # for id, face_list in faces_by_material.items():
@@ -121,19 +127,35 @@ def load_new(context,
     #print(f"Done in: " + str(datetime.timedelta(seconds=(time.time()-starttime))))
 
     #print(f"Applying normals ...")
-    mesh.use_auto_smooth = True
-    mesh.normals_split_custom_set(normals)
     #print(f"Transforming ...")
-    mesh.transform(global_matrix)      
+    nn=[] 
+    # for i, n in enumerate(normals):
+    #     #nn.append([1,0,0]) #list(global_matrix @ (Vector(n)))
+    #     normals[i] = list(scale_matrix @ (Vector(n)))
+ 
+    mesh.use_auto_smooth = True
+    mesh.normals_split_custom_set(normals) 
+
 
     #print(f"Making UV maps ...")
     # Create a new UVMap for each uv set
-    for i in range(0, len(face_uvs)):
-        uv_layer = mesh.uv_layers.new(name=f'UVMap-{str(i)}')
-        uv_layer.data.foreach_set("uv", face_uvs[i])
+    # for i in range(0, len(face_uvs)):
+    #     uv_layer = mesh.uv_layers.new(name=f'UVMap-{str(i)}')
+    #     uv_layer.data.foreach_set("uv", face_uvs[i])
+
+    for k, v in face_uvs_by_material.items():
+        for i in range(0, len(v)):
+            uv_layer = mesh.uv_layers.new(name=f'{obj.material_slots[k].material.name}-uvmap-{i}')
+            for loop in mesh.loops:
+                uv_layer.data[loop.index].uv = [0.0,0.0]
+
+            for item in v[i]:
+                li = item[0]
+                uv = [item[1][0], (item[1][1] if not flip_uv_vertical else (1.0 - item[1][1]))]
+                uv_layer.data[li].uv = uv
 
     if remove_duplicate_verts:
-        #print(f"Removing duplicate verts ...")
+        print(f"Removing duplicate verts ...")
         bm = bmesh.new()
         bm.from_mesh(mesh)
         before = len(mesh.vertices)
@@ -142,8 +164,9 @@ def load_new(context,
         after = len(mesh.vertices)            
         print(f"SPS {index}: Removed: {before - after} verts")
         bm.free() 
-        #print(f"Done!")
-
+        print(f"Done!")
+    
+    mesh.transform(global_matrix)
     mesh.update() 
     mesh.validate()
 
@@ -163,5 +186,5 @@ def load_new(context,
     obj["Collision"] = base64.b64encode(msh.collision).decode('ASCII')
     obj["Floor"] = msh.floor
     print(f"Success!")
-            
+
     return {'FINISHED'}

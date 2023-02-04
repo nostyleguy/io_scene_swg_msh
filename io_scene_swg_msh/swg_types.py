@@ -24,7 +24,8 @@ import math
 from . import nsg_iff
 from . import vector3D
 from . import vertex_buffer_format
- 
+from mathutils import Vector
+
 class SWGVertex(object):
     __slots = ('pos', 'normal', 'color', 'texs')
     def __init__(self):
@@ -356,19 +357,15 @@ class SWGMesh(object):
         iff.insertForm("0001")
         iff.insertForm("EXSP")
         iff.insertForm("0001")
+        
+        max = Vector(self.extents[0])
+        min = Vector(self.extents[1])        
+        center = (max + min) / 2.0
+        diff = (max - min) / 2.0
+        rad = diff.magnitude
 
         iff.insertChunk("SPHR")
-        
-        diff_x = math.fabs(self.extents[0][0]) + math.fabs(self.extents[1][0])
-        diff_y = math.fabs(self.extents[0][1]) + math.fabs(self.extents[1][1])
-        diff_z = math.fabs(self.extents[0][2]) + math.fabs(self.extents[1][2])
-        
-        center_x = self.extents[1][0] + (diff_x/2)
-        center_y = self.extents[1][1] + (diff_y/2)
-        center_z = self.extents[1][2] + (diff_z/2)
-        rad = (max(diff_x, diff_y, diff_z)/2)
-
-        iff.insertFloatVector3((center_x, center_y, center_z))
+        iff.insertFloatVector3(center[:])
         iff.insertFloat(rad)
         iff.exitChunk("SPHR")
         iff.exitForm(("0001"))

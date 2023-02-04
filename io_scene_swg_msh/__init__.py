@@ -63,7 +63,7 @@ from bpy_extras.io_utils import (
         )
 
 
-@orientation_helper(axis_forward='Z', axis_up='Y')
+@orientation_helper(axis_forward='-Z', axis_up='Y')
 class ImportMSH(bpy.types.Operator, ImportHelper):
     """Load a SWG Msh File"""
     bl_idname = "import_scene.msh"
@@ -86,6 +86,7 @@ class ImportMSH(bpy.types.Operator, ImportHelper):
             description="Attempt to remove verts that are probably duplicates (within 0.0001 units of each other)",
             default=False,
             )
+            
 
     def execute(self, context):
         from . import import_msh        
@@ -137,7 +138,7 @@ class MSH_PT_import_option(bpy.types.Panel):
         layout.prop(operator, 'remove_duplicate_verts')
 
 
-@orientation_helper(axis_forward='Z', axis_up='Y')
+@orientation_helper(axis_forward='-Z', axis_up='Y')
 class ExportMSH(bpy.types.Operator, ExportHelper):
     """Save a SWG .msh File"""
 
