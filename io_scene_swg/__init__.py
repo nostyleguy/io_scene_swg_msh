@@ -21,12 +21,12 @@
 # SOFTWARE.
 
 bl_info = {
-    "name": "SWG Mesh (.msh) Import/Export",
+    "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (1, 0, 9),
+    "version": (2, 0, 0),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
-    "description": "Import-Export SWG .msh",
+    "description": "Import-Export SWG .msh and .mgn",
     "warning": "",
     "doc_url": "None",
     "support": 'COMMUNITY',
@@ -35,17 +35,24 @@ bl_info = {
 
 if "bpy" in locals():
     import importlib
-    importlib.reload(import_msh)
-    importlib.reload(export_msh)
     importlib.reload(swg_types)
     importlib.reload(nsg_iff)
     importlib.reload(vertex_buffer_format)
+    importlib.reload(vector3D)
+    importlib.reload(import_msh)
+    importlib.reload(export_msh)
+    importlib.reload(import_mgn)
+    importlib.reload(export_mgn)
 else:
-    from . import import_msh
-    from . import export_msh
     from . import swg_types
     from . import nsg_iff
     from . import vertex_buffer_format
+    from . import swg_types
+    from . import vector3D
+    from . import import_msh
+    from . import export_msh
+    from . import import_mgn
+    from . import export_mgn
 
 import bpy
 from bpy.props import (
@@ -87,9 +94,8 @@ class ImportMSH(bpy.types.Operator, ImportHelper):
             default=False,
             )
             
-
     def execute(self, context):
-        from . import import_msh        
+        #from . import import_msh        
 
         keywords = self.as_keywords(ignore=("axis_forward",
                                             "axis_up",
@@ -152,20 +158,11 @@ class ExportMSH(bpy.types.Operator, ExportHelper):
             options={'HIDDEN'},
             )
 
-    # context group
-    use_selection: BoolProperty(
-            name="Selection Only",
-            description="Export selected objects only",
-            default=False,
-            )
-
     global_scale: FloatProperty(
             name="Scale",
             min=0.01, max=1000.0,
             default=1.0,
             )
-
-    #path_mode: path_reference_mode
 
     flip_uv_vertical: BoolProperty(
             name="Flip UV Vertically",
@@ -174,7 +171,7 @@ class ExportMSH(bpy.types.Operator, ExportHelper):
             )
 
     def execute(self, context):
-        from . import export_msh
+        #from . import export_msh
         from mathutils import Matrix
         keywords = self.as_keywords(ignore=("axis_forward",
                                             "axis_up",
@@ -217,23 +214,136 @@ class MSH_PT_export_option(bpy.types.Panel):
         operator = sfile.active_operator
 
         layout.prop(operator, 'global_scale')
-        #layout.prop(operator, 'path_mode')
         layout.prop(operator, 'axis_forward')
         layout.prop(operator, 'axis_up')
-        layout.prop(operator, 'use_selection')
         layout.prop(operator, 'flip_uv_vertical')
 
-def menu_func_import(self, context):
+class MGN_PT_import_option(bpy.types.Panel):
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_label = "Options"
+    bl_parent_id = "FILE_PT_operator"
+
+    @classmethod
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        return operator.bl_idname == "IMPORT_SCENE_OT_mgn"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+        layout.prop(operator, "axis_forward")
+        layout.prop(operator, "axis_up")
+
+
+@orientation_helper(axis_forward='Z', axis_up='Y')
+class ImportMGN(bpy.types.Operator, ImportHelper):
+    """Load a SWG MGN File"""
+    bl_idname = "import_scene.mgn"
+    bl_label = "Import Mgn"
+    bl_options = {'PRESET', 'UNDO'}
+
+    filename_ext = ".mgn"
+    filter_glob: StringProperty(
+                default="*.mgn",
+                options={'HIDDEN'},
+        )
+
+    def execute(self, context):
+        keywords = self.as_keywords(ignore=("axis_forward",
+                                            "axis_up",
+                                            "filter_glob",))
+
+        global_matrix = axis_conversion(from_forward=self.axis_forward,
+                                        from_up=self.axis_up,
+                                        ).to_4x4()
+                                        
+        keywords["global_matrix"] = global_matrix
+
+        result = import_mgn.import_mgn(context, **keywords)
+        if 'ERROR' in result:
+            self.report({'ERROR'}, 'Something went wrong importing MGN')
+            return {'CANCELLED'}
+        
+        return {'FINISHED'}
+
+    def draw(self, context):
+        pass
+
+class ExportMGN(bpy.types.Operator, ExportHelper):
+    '''Export MGN object'''
+    bl_idname='export_scene.mgn'
+    bl_label='Export Mgn'
+    bl_options = {'PRESET'}
+
+    bl_description = 'Export a SWG Animated Mesh.'
+
+    filename_ext = ".mgn"
+    filter_glob: StringProperty(
+            default="*.mgn",
+            options={'HIDDEN'},
+            )
+
+    do_tangents : BoolProperty(name='DOT3', description="Include DOT3 tangent vectors.", default=True) 
+    
+    def execute(self, context):
+        from . import export_mgn
+
+        keywords = self.as_keywords(ignore=("check_existing","filter_glob"))
+        print(f"Keyword args: {str(keywords)}")
+        result = export_mgn.export_mgn(context, **keywords)
+        if 'ERROR' in result:
+            self.report({'ERROR'}, 'Something went wrong exporting MGN')
+            return {'CANCELLED'}
+        
+        return {'FINISHED'}
+
+    def draw(self, context):
+        pass
+
+class MGN_PT_export_option(bpy.types.Panel):
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_label = "Options"
+    bl_parent_id = "FILE_PT_operator"
+
+    @classmethod    
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+        return operator.bl_idname == "EXPORT_SCENE_OT_mgn"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+        sfile = context.space_data
+        operator = sfile.active_operator
+        layout.prop(operator, 'do_tangents')
+
+def import_operators(self, context):
+    self.layout.operator(ImportMGN.bl_idname, text="SWG Animated Mesh (.mgn)")
     self.layout.operator(ImportMSH.bl_idname, text="SWG Static Mesh (.msh)")
 
-def menu_func_export(self, context):
+def export_operators(self, context):
+    self.layout.operator(ExportMGN.bl_idname, text="SWG Animated Mesh (.mgn)")
     self.layout.operator(ExportMSH.bl_idname, text="SWG Static Mesh (.msh)")
 
 classes = (
     ImportMSH,
     MSH_PT_import_option,
     ExportMSH,
-    MSH_PT_export_option
+    MSH_PT_export_option,
+    ImportMGN,
+    MGN_PT_export_option,
+    ExportMGN,    
+    MGN_PT_import_option,
 )
 
 
@@ -241,17 +351,17 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
-    bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
-    bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
+    bpy.types.TOPBAR_MT_file_import.append(import_operators)
+    bpy.types.TOPBAR_MT_file_export.append(export_operators)
 
 
 def unregister():
-    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
-    bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
+    bpy.types.TOPBAR_MT_file_import.remove(import_operators)
+    bpy.types.TOPBAR_MT_file_export.remove(export_operators)
 
     for cls in classes:
         bpy.utils.unregister_class(cls)
 
-
 if __name__ == "__main__":
+    unregister()
     register()

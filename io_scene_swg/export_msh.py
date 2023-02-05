@@ -48,7 +48,6 @@ def mesh_triangulate(me):
 def save(context,
          filepath,
          *,
-         use_selection=True,
          global_matrix=None,
          flip_uv_vertical=False
          ):
@@ -89,20 +88,17 @@ def save(context,
 
     t_ln = array.array(data_types.ARRAY_FLOAT64, [0.0,]) * len(me.loops) * 3
     uv_names = [uvlayer.name for uvlayer in me.uv_layers]
+
     for name in uv_names:
-        print(f"Did tangents for UV map: {name}")
         me.calc_tangents(uvmap=name)
-    
-    #gather information about extrema
+
     extreme_g_x = None
     extreme_g_y = None
     extreme_g_z = None
             
     extreme_l_x = None
     extreme_l_y = None
-    extreme_l_z = None    
-            
-    curr_sps_number = 0
+    extreme_l_z = None
 
     #If negative scaling, we have to invert the normals...
     if ob_mat.determinant() < 0.0:
@@ -114,26 +110,15 @@ def save(context,
             faces_by_material[polygon.material_index] = []   
         faces_by_material[polygon.material_index].append(polygon)
 
-    uv_maps_by_material = {}
-    for index in faces_by_material:
-        uv_maps_by_material[index] = {}
-        mat_name = current_obj.material_slots[index].material.name
-        for uv_map in me.uv_layers:
-            if uv_map.name.startswith(mat_name):
-                num=int(uv_map.name.split('-')[-1])
-                uv_maps_by_material[index][num] = uv_map
-
-    print(f"UVMaps by material: {str(uv_maps_by_material)}")
-
 
     for mat_index, face_list in faces_by_material.items():
 
         material = current_obj.material_slots[mat_index].material            
         thisSPS = swg_types.SPS(mat_index, f'shader/{material.name}.sht', 0, [], [])
 
-        uvSets = len(uv_maps_by_material[mat_index])
-        # if "UVSets" in material:
-        #     uvSets = material["UVSets"]
+        uvSets = 1
+        if "UVSets" in material:
+            uvSets = material["UVSets"]
 
         doDOT3 = False
         if "DOT3" in material:
@@ -169,15 +154,10 @@ def save(context,
                     swg_v.normal = vector3D.Vector3D(-normal[0], normal[1], normal[2])
 
                     for i in range(0, uvSets):
-                        uv = uv_maps_by_material[mat_index][i].data[l_index].uv
+                        uv = me.uv_layers[i].data[l_index].uv
 
                         if flip_uv_vertical:
                             uv[1] = (1.0 - uv[1])
-                    # for layer in uv_maps:   
-                    #     uv = layer[l_index].uv
-
-                    #     if flip_uv_vertical:
-                    #         uv[1] = 1.0 - uv[1]
 
                         swg_v.texs.append(uv)
 

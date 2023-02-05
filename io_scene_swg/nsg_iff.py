@@ -184,7 +184,11 @@ class IFF():
     def read_float(self):
         return struct.unpack('f', self.read_misc(4))[0]
 
-
+    def read_vector3(self):
+        return [self.read_float(), self.read_float(), self.read_float()]
+    def read_vector4(self):
+        return [self.read_float(), self.read_float(), self.read_float(), self.read_float()]
+    
     def adjustDataAsNeeded(self, size):
         neededLength = self.stack[0].length + size
 
@@ -342,6 +346,12 @@ class IFF():
 
     def insertFloat(self, f):
         self.insertChunkData(struct.pack('f', f))
+        
+    def insertFloatVector4(self, vec):
+        self.insertFloat(vec[0])
+        self.insertFloat(vec[1])
+        self.insertFloat(vec[2])
+        self.insertFloat(vec[3])
 
     def insertFloatVector3(self, vec):
         self.insertFloat(vec[0])
