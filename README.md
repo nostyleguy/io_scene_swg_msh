@@ -15,14 +15,14 @@ Should work with Blender 2.9+ and 3+
 * Vertex Colors: Not supported (can read a mesh with them, but will be unused and lost). No export support.
 * Extents: Automatically compute Extents (box and sphere)
 * Collision Extents: Reads CollisionExtents and stores their binary data in a Custom Property so they can be exported. No edit support, but non-destructive 
-* Floor: Saves floor file name in custom property
+* Floor: Saves floor file path in custom property, "Floor". You can add/edit this for export.
 * Hardpoints: Supports hardpoints as empty "Arrows" objects. The name of the Arrows empty will become the name of the hardpoint at export. To add a hardpoint:
   * Create an empty Arrows object in Object mode:
     * Shift+A -> Empty -> Arrows 
   * Make the new Empty a child of a mesh object:
     * In Object Mode, multi-select the Arrow then the Mesh
     * Ctrl+P -> Object 
-* Import option to "Remove Duplicate Verts". Shouldn't be needed in most cases, but will remove verts that are in the same 3D space and merge them. If you attempt to import a mesh exported by this tool, you'll see how each vert in each tri is unique (instead of shared at the corners), which can make it hard to edit the mesh. This option will merge those verts again, so common vert corners are shared among triangles. 
+* Import option to "Remove Duplicate Verts". Shouldn't be needed in most cases, but will remove verts that are in the same 3D space and merge them. 
 
 ### MGN Import/Export:
 
