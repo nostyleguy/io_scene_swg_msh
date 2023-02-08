@@ -38,6 +38,10 @@ def export_mgn(context,
                *,
                do_tangents = True):    
     starttime = time.time()
+    
+    s=context.preferences.addons[__package__].preferences.swg_root
+    #s="E:/SWG_Legends_Dev/clientside_git_repo/"
+    #print(f"Root: {str(s)}")
 
     current_obj = None
     objects = context.selected_objects
@@ -52,6 +56,11 @@ def export_mgn(context,
                 return False
             else:
                 current_obj = ob
+                mb = current_obj.matrix_basis
+                if hasattr(current_obj.data, "transform"):
+                    current_obj.data.transform(mb)
+                    
+                current_obj.matrix_basis.identity()
                 
     bm = current_obj.to_mesh() 
     mesh_triangulate(bm)
@@ -69,12 +78,15 @@ def export_mgn(context,
             print(f"Did tangents for UV map: {name}")
             bm.calc_tangents(uvmap=name)
 
-    mgn = swg_types.SWGMgn(filepath)
+    mgn = swg_types.SWGMgn(filepath, s)
 
     i = 0
     for key in current_obj.keys():
         if key.startswith("SKTM_"):
             mgn.skeletons.append(current_obj[key])
+        elif key.startswith("OZN_"):
+            mgn.occlusions.append([key.replace("OZN_",""), i, current_obj[key]])
+            i += 1
         elif key == "OCC_LAYER":
             mgn.occlusion_layer = current_obj[key]
         elif key == "HPTS":
@@ -83,9 +95,9 @@ def export_mgn(context,
         elif key == "TRTS":
             trts_bytes = base64.b64decode(current_obj["TRTS"])
             mgn.binary_trts = trts_bytes
-        else:
-            mgn.occlusions.append([key, i, current_obj[key]])
-            i += 1
+
+    if len(mgn.skeletons) == 0:
+        mgn.skeletons.append("appearance/skeleton/all_b.skt")
 
     for vert in bm.vertices:
         mgn.positions.append([-vert.co[0],vert.co[2],-vert.co[1]])
@@ -99,8 +111,6 @@ def export_mgn(context,
             tang = loop.tangent
             mgn.dot3.append([ -tang[0], tang[2], -tang[1], loop.bitangent_sign])
 
-    twhd = []
-    twdt = []
     for keys in bpy.data.shape_keys:
         if keys == bm.shape_keys:
             for key in keys.key_blocks[1:]:
@@ -160,7 +170,6 @@ def export_mgn(context,
                 
                 if last_tri_index == None:
                     last_tri_index = l_index
-                    print(f"Starting last_tri_index at {last_tri_index}")
                     
                 if t1 == None:
                     t1 = running_tri_index
@@ -190,7 +199,7 @@ def export_mgn(context,
     od = collections.OrderedDict(sorted(twdtdata.items()))
     mgn.twdt = list(od.values())
 
-    print(f"Assembling final IFF ... ")
+    print(f"Assembling final IFF for MGN: {str(mgn)} ")
     mgn.write()
     now = time.time()        
     print(f"Successfully wrote: {filepath} Duration: " + str(datetime.timedelta(seconds=(now-starttime))))

@@ -21,7 +21,7 @@
 # SOFTWARE.
 import bpy, base64
 from . import swg_types
-
+from . import support
 from bpy.props import *
 from bpy_extras.io_utils import unpack_list, unpack_face_list
 from mathutils import Vector, Quaternion, Matrix, Euler
@@ -32,7 +32,10 @@ def import_mgn( context,
                 *,      
                 global_matrix=None):
 
-    mgn = swg_types.SWGMgn(filepath)
+    s=context.preferences.addons[__package__].preferences.swg_root
+    #s="E:/SWG_Legends_Dev/clientside_git_repo/"
+
+    mgn = swg_types.SWGMgn(filepath, s)
     mgn.load()
 
     mesh_name = filepath.split('\\')[-1].split('.')[0]
@@ -57,13 +60,18 @@ def import_mgn( context,
         # mesh.materials.append(mat)  
         mat_name = psdt.stripped_shader_name()
         material = None
+        
         for mat in bpy.data.materials:
             if mat.name == mat_name:
                 material = mat
+
         if material == None:
-            material = bpy.data.materials.new(psdt.stripped_shader_name())
-            
-        mesh.materials.append(material)      
+            material = bpy.data.materials.new(psdt.stripped_shader_name()) 
+        if psdt.real_shader: 
+           support.configure_material_from_swg_shader(material, psdt.real_shader, s) 
+
+        mesh.materials.append(material)
+
         faces_by_material.append([])
 
         for prim in psdt.prims:
@@ -144,7 +152,7 @@ def import_mgn( context,
     for i, skel in enumerate(mgn.skeletons):
         scene_object[f'SKTM_{i}'] = skel
 
-    print(f"Occulusions: {str(mgn.occlusions)}")
+    #print(f"Occulusions: {str(mgn.occlusions)}")
     for zone in mgn.occlusions:
         scene_object[zone[0]] = zone[2]
 

@@ -21,10 +21,79 @@
 # SOFTWARE.
 
 import math
+from . import support
 from . import nsg_iff
 from . import vector3D
 from . import vertex_buffer_format
 from mathutils import Vector
+
+SWG_ROOT=None
+class AptFile(object):
+    __slots__ = ('path', 'filename')
+    def __init__(self, path, filename):
+        self.path = path
+        self.filename = filename
+
+    def write(self):
+        iff = nsg_iff.IFF(initial_size=100000)      
+        iff.insertForm("APT ")
+        iff.insertForm("0000")
+        iff.insertChunk("NAME")
+        iff.insertChunkString(self.filename)
+        iff.write(self.path)
+
+
+class LodFile(object):
+    __slots__ = ('path', 'mesh')
+    def __init(self, path, mesh):
+        self.path = path
+        self.mesh = mesh
+
+    def write(self):
+        iff = nsg_iff.IFF(initial_size=100000)      
+        iff.insertForm("DTLA")
+        iff.insertForm("0008")
+        
+        iff.insertForm("APPR")
+        iff.exitForm()
+
+        iff.insertChunk("PIVT")
+        iff.insert_int16(0)
+        iff.exitChunk("PIVT")
+
+        iff.insertChunk("INFO")
+        iff.insert_uint32(0)
+        iff.insertFloat(0)
+        iff.insertFloat(64000)
+        iff.exitChunk("INFO")
+
+        iff.insertForm("DATA")
+        iff.insertChunk("CHLD")
+        iff.insert_int32(0)
+        iff.insertChunkString(self.filename)
+        iff.exitChunk("CHLD")
+        iff.exitForm("DATA")
+
+        iff.insertForm("RADR")
+        iff.insertChunk("INFO")
+        iff.insert_bool(False)
+        iff.exitChunk("INFO")
+        iff.exitForm("RADR")
+
+        iff.insertForm("TEST")
+        iff.insertChunk("INFO")
+        iff.insert_bool(False)
+        iff.exitChunk("INFO")
+        iff.exitForm("TEST")
+
+        iff.insertForm("WRIT")
+        iff.insertChunk("INFO")
+        iff.insert_bool(False)
+        iff.exitChunk("INFO")
+        iff.exitForm("WRIT")
+        
+        iff.write(self.path)
+
 class MgnHardpoint(object):
     __slots__ = ('name', 'parent', 'orientation', 'position')
     def __init__(self, name, parent, orientation, position):
@@ -64,20 +133,158 @@ class Triangle(object):
     def __repr__(self):
         return self.__str__()
 
+class SWGShader(object):
+    __slots__ = ('path', 'main', 'spec', 'normal', 'envm', 'effect', 'customizable', 'transparent')
+    def __init__(self, path):
+        self.path=path
+        self.main=None
+        self.spec=None
+        self.normal=None
+        self.envm=None
+        self.customizable=False
+        self.transparent=False
+        self.effect = None
+        self.load()
+
+    def __str__(self):
+        return f"[{self.path}, {self.main}, {self.spec}]"
+    def __repr__(self):
+        return self.__str__()
+
+    def infer_features_from_effect(self):
+        if self.effect:
+            self.transparent = any([x in self.effect for x in ["alpha", "invis", "water"]])
+            #print(f"{self.path} effect: {self.effect} transparent: {self.transparent}")
+            
+    def load(self):
+        iff = nsg_iff.IFF(filename=self.path)
+        #print(f"Name: {iff.getCurrentName()} Length: {iff.getCurrentLength()}")
+        top_form = iff.getCurrentName()
+        if top_form == "CSHD":
+            self.customizable = True
+            self.load_cshd(iff)
+        elif top_form == "SSHT":
+            self.customizable = False
+            self.load_ssht(iff)
+        elif top_form == "SWTS":
+            self.customizable = False
+            self.load_swts(iff)
+        else: 
+            print(f"Shader: {self.path} is unsupported shader type: {top_form}. Won't decode!")
+            iff.exitForm()
+
+        self.infer_features_from_effect()
+
+    def load_cshd(self, iff):
+        iff.enterForm("CSHD")
+        version = iff.getCurrentName()
+        if version in ["0001"]:            
+            iff.enterForm(version)
+            self.load_ssht(iff)
+            iff.exitForm(version)
+        else:            
+            print(f"{iff.filename}: unsupported CSHD Version: {version}!")
+        iff.exitForm("CSHD")
+
+    def load_ssht(self, iff):
+        iff.enterForm("SSHT")
+        version = iff.getCurrentName()
+        if version in ["0000", "0001"]: 
+
+            iff.enterForm(version)
+            if iff.getCurrentName() == "NAME":
+                iff.enterChunk("NAME")
+                self.effect = iff.read_string()
+                iff.exitChunk("NAME")
+
+            iff.enterForm("MATS")
+            iff.exitForm("MATS")
+
+            if iff.getCurrentName() == "TXMS":
+                iff.enterForm("TXMS")
+                count = 0
+                while not iff.atEndOfForm():
+                    count += 1
+                    iff.enterForm("TXM ")
+                    iff.enterAnyForm() # version
+                    iff.enterChunk("DATA")
+                    tag = iff.read_string()[::-1] # reverse tag
+                    iff.exitChunk("DATA")
+                    iff.enterChunk("NAME")
+                    texture= iff.read_string()
+                    iff.exitChunk("NAME")
+                    iff.exitForm()
+                    iff.exitForm("TXM ")
+                    #print(f"Tag: {tag}: {texture}")
+
+                    if tag == "MAIN":
+                        self.main = texture
+                    elif tag == "SPEC":
+                        self.spec = texture
+                    elif tag in ["CNRM", "NRML"]:
+                        self.normal = texture
+                    elif tag == "ENVM":
+                        self.envm = texture
+                #print(f"TXMs: {count}")
+                iff.exitForm("TXMS")
+
+            if iff.getCurrentName() == "TCSS":
+                iff.enterForm("TCSS")
+                iff.exitForm("TCSS")
+            
+
+            if iff.getCurrentName() == "TFNS":
+                iff.enterForm("TFNS")
+                iff.exitForm("TFNS")
+
+            if iff.getCurrentName() == "ARVS":
+                iff.enterForm("ARVS")
+                iff.exitForm("ARVS")
+            
+
+            if iff.getCurrentName() == "SRVS":
+                iff.enterForm("SRVS")
+                iff.exitForm("SRVS")
+
+            if iff.getCurrentName() == "NAME":
+                iff.enterChunk("NAME")
+                self.effect = iff.read_string()
+                iff.exitChunk("NAME")
+                
+            iff.exitForm(version)
+        else:            
+            print(f"{iff.filename}: unsupported SSHT Version: {version}!")
+        iff.exitForm("SSHT")
+
+    def load_swts(self, iff):
+        iff.enterForm("SWTS")
+        version = iff.getCurrentName()
+        if version in ["0000"]:            
+            iff.enterForm(version)
+            if iff.getCurrentName() == "NAME":
+                iff.enterChunk("NAME")
+                self.effect = iff.read_string()
+                iff.exitChunk("NAME")
+
 class SPS(object):
-    __slots__ = ('no', 'shader', 'flags', 'verts', 'tris')
+    __slots__ = ('no', 'shader', 'flags', 'verts', 'tris', 'full_shader_path', 'real_shader')
     def __init__(self):
         self.no = 0
         self.shader = ""
         self.flags = 0
         self.verts = []
         self.tris = []
+        self.full_shader_path = None
+        self.real_shader = None
+
     def __init__(self, no , shader, flags, verts, tris):
         self.no = no
         self.shader = shader
         self.flags = flags
         self.verts = verts
         self.tris = tris
+        self.full_shader_path = None
+        self.real_shader = None
 
     def hasDOT3(self):
         num_uv_sets = vertex_buffer_format.getNumberOfTextureCoordinateSets(self.flags)
@@ -105,8 +312,10 @@ class SPS(object):
         return self.__str__()
 
 class SWGMesh(object):
-    __slots__ = ('filename', 'spss', 'extents', 'collision', 'realCollision', 'hardpoints', 'floor')
-    def __init__(self, filename):
+    __slots__ = ('filename', 'spss', 'extents', 'collision', 'realCollision', 'hardpoints', 'floor', 'root_dir')
+    def __init__(self, filename, root):
+        global SWG_ROOT
+        SWG_ROOT = root
         self.filename = filename
         self.spss = []
         self.extents = []
@@ -114,6 +323,7 @@ class SWGMesh(object):
         self.realCollision = None
         self.hardpoints = []
         self.floor = ""
+        #self.root_dir = root
 
     def __str__(self):
         s = f"Filename: {self.filename}\nExtents: {str(self.extents)}\nCollision: {str(self.collision_summary_str())}\nSPS: {len(self.spss)}\n"
@@ -135,7 +345,7 @@ class SWGMesh(object):
 
         num_uv_sets = vertex_buffer_format.getNumberOfTextureCoordinateSets(flags)
         if(num_uv_sets > 0) and (vertex_buffer_format.getTextureCoordinateSetDimension(flags, num_uv_sets - 1) == 4):         
-            print(f'Mesh: {self.filename} SPS: {sps_no} Flags: {flags}: Has deprecated DOT3 UVs. Will skip!')
+            print(f'Mesh: {self.filename} SPS: {sps_no} Flags: {flags}: Has DOT3!')
 
         if vertex_buffer_format.hasPointSize(flags):
             print(f'Mesh: {self.filename} SPS: {sps_no} Flags: {flags}: Has PointSize. Never seen that before! Not doing anything with it FYI')
@@ -344,6 +554,12 @@ class SWGMesh(object):
 
                 sps = SPS(sps_no, sht, bit_flag, verts, indexes)
 
+                real_shader_path = support.find_file(sps.shader, SWG_ROOT)
+                if real_shader_path:
+                    sps.full_shader_path = real_shader_path
+                    sps.real_shader = SWGShader(sps.full_shader_path)
+                else:
+                    print(f"Couldn't locate real shader path for: {sps.shader}")
                 self.spss.append(sps)
 
             else:
@@ -516,18 +732,20 @@ class SWGBLendShape(object):
 
 class SWGPerShaderData(object):
     def __init__(self):
-            self.name = ""
-            self.pidx = []
-            self.nidx = []
-            self.dot3 = None
-            self.colors = None
-            self.txci = []
-            self.tcsd = []
-            self.num_uvs = 0
-            self.uv_dimensions = []
-            self.uvs = []
-            self.num_prims = 0
-            self.prims = []
+        self.name = ""
+        self.pidx = []
+        self.nidx = []
+        self.dot3 = None
+        self.colors = None
+        self.txci = []
+        self.tcsd = []
+        self.num_uvs = 0
+        self.uv_dimensions = []
+        self.uvs = []
+        self.num_prims = 0
+        self.prims = []
+        self.full_shader_path = None
+        self.real_shader = None
 
     def __str__(self):
         s = f"""Name: {self.name} pidx: {str(len(self.pidx))} nidx: {str(len(self.nidx))} DOT3: {(str(len(self.dot3)) if self.dot3 else "N/A")}"""
@@ -547,7 +765,10 @@ class SWGPerShaderData(object):
             return self.name.split('/')[1].split('.')[0]
 
 class SWGMgn(object):
-    def __init__(self, filename):
+    def __init__(self, filename, root):
+        global SWG_ROOT
+        SWG_ROOT = root
+
         self.filename = filename
 
         self.max_transforms_vertex = 0
@@ -821,11 +1042,10 @@ class SWGMgn(object):
                 occ[2] = 0
             while not iff.atEndOfForm():
                 index = iff.read_int16()
-                print(f"Found ZTO: {index}")
                 for occ in self.occlusions:
                     if occ[1] == index:
                         occ[2] = 1
-                        print(f"Occ: {str(occ)} is ZTO: {index} Setting occluded to: {occ[2]}")
+                        #print(f"Occ: {str(occ)} is ZTO: {index} Setting occluded to: {occ[2]}")
             iff.exitChunk("ZTO ")
 
         while iff.getCurrentName() == "PSDT":
@@ -834,6 +1054,13 @@ class SWGMgn(object):
 
             iff.enterChunk("NAME")
             psdt.name = iff.read_string()
+            real_shader_path = support.find_file(psdt.name, SWG_ROOT)
+            if real_shader_path:
+                psdt.full_shader_path = real_shader_path
+                psdt.real_shader = SWGShader(psdt.full_shader_path)
+            else:
+                print(f"Couldn't locate real shader path for: {psdt.name}")
+
             iff.exitChunk("NAME")
 
             iff.enterChunk("PIDX")

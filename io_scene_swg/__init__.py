@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 0),
+    "version": (2, 0, 1),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh and .mgn",
@@ -35,6 +35,7 @@ bl_info = {
 
 if "bpy" in locals():
     import importlib
+    importlib.reload(support)
     importlib.reload(swg_types)
     importlib.reload(nsg_iff)
     importlib.reload(vertex_buffer_format)
@@ -44,6 +45,7 @@ if "bpy" in locals():
     importlib.reload(import_mgn)
     importlib.reload(export_mgn)
 else:
+    from . import support
     from . import swg_types
     from . import nsg_iff
     from . import vertex_buffer_format
@@ -68,6 +70,48 @@ from bpy_extras.io_utils import (
         path_reference_mode,
         axis_conversion,
         )
+
+import bpy
+from bpy.types import Operator, AddonPreferences
+from bpy.props import StringProperty, IntProperty, BoolProperty
+
+
+class SWGPreferences(AddonPreferences):
+    # this must match the add-on name, use '__package__'
+    # when defining this in a submodule of a python package.
+    bl_idname = __name__
+
+    swg_root: StringProperty(
+        name="SWG Client Extract Dir (should contain dirs like 'appearance', 'shader', 'texture', etc.",
+        subtype='FILE_PATH',
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        #layout.label(text="This is a preferences view for our add-on")
+        layout.prop(self, "swg_root")
+
+        #info = f"Name: {__name__} Path: {self.swg_root}"
+        #print(info)
+
+
+class OBJECT_OT_addon_prefs_swg(Operator):
+    """Display SWG Preferences"""
+    bl_idname = "object.addon_swg_prefs"
+    bl_label = "SWG Preferences"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        preferences = context.preferences
+        addon_prefs = preferences.addons[__name__].preferences
+
+        info = f"Name: {__name__} Path: {addon_prefs.swg_root}"
+
+        self.report({'INFO'}, info)
+        print(info)
+
+        return {'FINISHED'}
+
 
 
 @orientation_helper(axis_forward='-Z', axis_up='Y')
@@ -336,6 +380,8 @@ def export_operators(self, context):
     self.layout.operator(ExportMSH.bl_idname, text="SWG Static Mesh (.msh)")
 
 classes = (
+    OBJECT_OT_addon_prefs_swg,
+    SWGPreferences,
     ImportMSH,
     MSH_PT_import_option,
     ExportMSH,

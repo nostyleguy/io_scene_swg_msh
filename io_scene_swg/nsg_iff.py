@@ -26,7 +26,7 @@ class IFF():
         self.stack_depth = 0
         self.in_chunk = False
         self.timesExpanded = 0
-
+        self.filename = filename
         if filename != "":
             self.open_file(filename)
         else:

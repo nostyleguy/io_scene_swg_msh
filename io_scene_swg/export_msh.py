@@ -24,7 +24,7 @@ import os
 import bpy
 import base64
 import bmesh
-import time, datetime, array
+import time, datetime, array, functools
 from . import vector3D
 from . import swg_types
 from . import vertex_buffer_format
@@ -52,7 +52,11 @@ def save(context,
          flip_uv_vertical=False
          ):
          
-    newMsh = swg_types.SWGMesh(filepath)
+    s=context.preferences.addons[__package__].preferences.swg_root
+    #s="E:/SWG_Legends_Dev/clientside_git_repo/"
+    #print(f"Root: {str(s)}")
+
+    newMsh = swg_types.SWGMesh(filepath, s)
     start = time.time()
     print(f'Exporting msh: {filepath} Flip UV: {flip_uv_vertical}')
 
@@ -214,5 +218,10 @@ def save(context,
     newMsh.write(filepath)
     now = time.time()
     print(f"Successfully wrote: {filepath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
+
+    apt_path =  (functools.reduce(os.path.join,[s, "appearance", current_obj.name]) + ".apt").lower()
+    apt_reference = (functools.reduce(os.path.join,["mesh", current_obj.name]) + ".msh").lower()
+    apt = swg_types.AptFile(apt_path, apt_reference)
+    apt.write()
 
     return {'FINISHED'}

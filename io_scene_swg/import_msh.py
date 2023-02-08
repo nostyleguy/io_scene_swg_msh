@@ -22,16 +22,30 @@
 
 import base64, os, bpy, time, datetime
 import bmesh
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Vector, Color
 
 from bpy_extras.io_utils import unpack_list
-from bpy_extras.image_utils import load_image
 from bpy_extras.wm_utils.progress_report import ProgressReport
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
+from bpy_extras import node_shader_utils
+from bpy import utils
 
 from . import vertex_buffer_format
 from . import swg_types
+from . import support
 
+def images_in_tree(node_tree):
+    for node in node_tree.nodes:
+        if hasattr(node, "image"):
+            yield node.image
+        if hasattr(node, "node_tree"):
+            yield from images_in_tree(node.node_tree)
+
+def all_images():
+    for mat in bpy.data.materials:
+        if mat.use_nodes:
+            return set(filter(None, images_in_tree(mat.node_tree)))
+            
 def load_new(context,
              filepath,
              *,     
@@ -41,8 +55,11 @@ def load_new(context,
              ):  
 
     print(f'Importing msh: {filepath} Flip UV: {flip_uv_vertical}')
-    
-    msh = swg_types.SWGMesh(filepath)
+    s=context.preferences.addons[__package__].preferences.swg_root
+    #s="E:/SWG_Legends_Dev/clientside_git_repo/"
+    #print(f"Root: {str(s)}")
+     
+    msh = swg_types.SWGMesh(filepath, s)
     if not msh.load():
         return {'ERROR'}
     
@@ -70,16 +87,21 @@ def load_new(context,
         faces_by_material[index] = []
         mat_name = sps.stripped_shader_name()
         material = None
+        
         for mat in bpy.data.materials:
             if mat.name == mat_name:
                 material = mat
 
         if material == None:
             material = bpy.data.materials.new(sps.stripped_shader_name()) 
-            material["DOT3"] = sps.hasDOT3()
-            material["UVSets"] = num_uv_sets
+
+        material["DOT3"] = sps.hasDOT3()
+        material["UVSets"] = num_uv_sets
+        if sps.real_shader: 
+           support.configure_material_from_swg_shader(material, sps.real_shader, s) 
 
         mesh.materials.append(material) 
+
         uvs = []
         for ind, vert in enumerate(sps.verts):
             verts.append((-vert.pos.x, vert.pos.y, vert.pos.z))
