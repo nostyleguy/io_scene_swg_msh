@@ -199,6 +199,22 @@ def export_mgn(context,
     od = collections.OrderedDict(sorted(twdtdata.items()))
     mgn.twdt = list(od.values())
 
+    if len(current_obj.face_maps) > 0:
+        mgn.occlusion_zones=[]
+
+        face_maps = current_obj.face_maps
+
+        for face_map in face_maps:
+            mgn.occlusion_zones.append([face_map.name, []])
+
+        # bpy_prop_collection of MeshFaceMap
+        mesh_face_maps = current_obj.data.face_maps.active.data
+
+        for i, mesh_face_map in enumerate(mesh_face_maps):
+            n=face_maps[mesh_face_map.value].index
+            #print(f"faces[{i}]: {n}")
+            mgn.occlusion_zones[n][1].append(i)
+
     print(f"Assembling final IFF for MGN: {str(mgn)} ")
     mgn.write()
     now = time.time()        

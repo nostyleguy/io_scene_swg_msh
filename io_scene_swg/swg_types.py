@@ -788,6 +788,7 @@ class SWGMgn(object):
         self.occlusion_layer = 2
 
         self.occlusions = []
+        self.occlusion_zones = None
         self.skeletons = []
         self.bone_names = []
 
@@ -832,6 +833,7 @@ class SWGMgn(object):
                 self.twdt: {len(self.twdt)}
                 self.dot3: {(str(len(self.dot3)) if self.dot3 else "NA")}
                 self.occlusions: {', '.join(str(x) for x in self.occlusions)}
+                self.occlusion_zones: {((', '.join(str(x) for x in self.occlusion_zones)) if self.occlusion_zones else "NONE")}
                 self.dynamic_hardpoints: {((', '.join(str(x) for x in self.dynamic_hardpoints)) if self.dynamic_hardpoints else "NONE")}
                 self.static_hardpoints: {((', '.join(str(x) for x in self.static_hardpoints)) if self.static_hardpoints else "NONE")}
                 """
@@ -1030,10 +1032,24 @@ class SWGMgn(object):
 
         if iff.getCurrentName() == "FOZC":
             iff.enterChunk("FOZC")
+            focz_count = iff.read_int16()
+            i = 0
+            while not iff.atEndOfForm():
+                n = iff.read_int16()
+                self.occlusions[i][1] = n
+                i += 1
             iff.exitChunk("FOZC")
 
         if iff.getCurrentName() == "OZC ":
             iff.enterChunk("OZC ")
+            self.occlusion_zones=[]
+            while not iff.atEndOfForm():
+                this_zone=[]
+                count = iff.read_int16()
+                for i in range(0,count):
+                    n = iff.read_int16()
+                    this_zone.append(next(x[0] for x in self.occlusions if x[1] == n))
+                self.occlusion_zones.append([":".join(this_zone),[]])
             iff.exitChunk("OZC ")
 
         if iff.getCurrentName() == "ZTO ":
@@ -1048,6 +1064,7 @@ class SWGMgn(object):
                         #print(f"Occ: {str(occ)} is ZTO: {index} Setting occluded to: {occ[2]}")
             iff.exitChunk("ZTO ")
 
+        global_tri_index=0
         while iff.getCurrentName() == "PSDT":
             psdt = SWGPerShaderData()
             iff.enterForm("PSDT")
@@ -1127,6 +1144,8 @@ class SWGMgn(object):
                     #for n in range(0, num_tris):
                     while not iff.atEndOfForm():
                         occ = iff.read_int16()
+                        self.occlusion_zones[occ][1].append(global_tri_index)
+                        global_tri_index += 1
                         p1 = iff.read_int32()
                         p2 = iff.read_int32()
                         p3 = iff.read_int32()
@@ -1184,7 +1203,7 @@ class SWGMgn(object):
         iff.insert_uint32(len(self.blends))
         
         iff.insert_uint16(len(self.occlusions))
-        iff.insert_uint16(self.num_occ_combo_zones)
+        iff.insert_uint16(len(self.occlusion_zones))
         iff.insert_uint16(self.get_zones_this_occludes())
         iff.insert_uint16(self.occlusion_layer) 
         iff.exitChunk("INFO")
@@ -1274,13 +1293,24 @@ class SWGMgn(object):
                 iff.insertChunkString(occ[0])
             iff.exitChunk("OZN ")
 
-        # if iff.getCurrentName() == "FOZC":
-        #     iff.enterChunk("FOZC")
-        #     iff.exitChunk("FOZC")
+        if len(self.occlusions) > 0:
+            iff.insertChunk("FOZC")
+            count=len(self.occlusions)
+            iff.insert_int16(count)
+            for n in range(0, count):
+                iff.insert_int16(n)
+            iff.exitChunk("FOZC")
 
-        # if iff.getCurrentName() == "OZC ":
-        #     iff.enterChunk("OZC ")
-        #     iff.exitChunk("OZC ")
+        if len(self.occlusion_zones) > 0:
+            iff.insertChunk("OZC ")
+            for occ in self.occlusion_zones:
+                zones=occ[0].split(':')                
+                iff.insert_int16(len(zones))
+                for zone_name in zones:
+                    for zone in self.occlusions:
+                        if zone[0] == zone_name:
+                            iff.insert_int16(zone[1])
+            iff.exitChunk("OZC ")
 
         if len(self.occlusions) > 0:
             iff.insertChunk("ZTO ")
@@ -1289,6 +1319,7 @@ class SWGMgn(object):
                     iff.insert_int16(occ[1])
             iff.exitChunk("ZTO ")
 
+        global_tri_index=0
         for psdt in self.psdts:
             iff.insertForm("PSDT")
             iff.insertChunk("NAME")
@@ -1334,12 +1365,25 @@ class SWGMgn(object):
             iff.insert_uint32(len(psdt.prims))
             iff.exitChunk("INFO")
 
-            for prim in psdt.prims:
-                iff.insertChunk("ITL ")
-                iff.insert_uint32(len(prim) // 3)
-                for value in prim:
-                    iff.insert_uint32(value)
-                iff.exitChunk("ITL ")
+            if self.occlusion_zones:
+                for prim in psdt.prims:
+                    iff.insertChunk("OITL")
+                    iff.insert_uint32(len(prim) // 3)
+                    for value in prim:
+                        if global_tri_index % 3 == 0:
+                            for i, occ in enumerate(self.occlusion_zones):
+                                if (global_tri_index // 3) in occ[1]:
+                                    iff.insert_int16(i)
+                        iff.insert_uint32(value)
+                        global_tri_index += 1
+                    iff.exitChunk("OITL")
+            else:
+                for prim in psdt.prims:
+                    iff.insertChunk("ITL ")
+                    iff.insert_uint32(len(prim) // 3)
+                    for value in prim:
+                        iff.insert_uint32(value)
+                    iff.exitChunk("ITL ")
             iff.exitForm("PRIM")
             
             iff.exitForm("PSDT")

@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 1),
+    "version": (2, 0, 2),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh and .mgn",
@@ -379,6 +379,49 @@ def export_operators(self, context):
     self.layout.operator(ExportMGN.bl_idname, text="SWG Animated Mesh (.mgn)")
     self.layout.operator(ExportMSH.bl_idname, text="SWG Static Mesh (.msh)")
 
+def dump(obj, text):
+    for attr in dir(obj):
+        print("%r.%s = %s" % (obj, attr, getattr(obj, attr)))
+
+# == OPERATORS
+class SWG_Load_Materials_Operator(bpy.types.Operator):
+    bl_idname = "object.swg_load_materials"
+    bl_label = "Find and load materials"
+    bl_description = '''Attempts to locate SWG shaders that match material names and set their properties automatically. 
+NOTE: If this option is disabled, you need to set the "SWG Client Extract Dir" property in the add-on preferences, and have 1 object selected'''
+    
+    @classmethod
+    def poll(cls, context):
+        return context.active_object != None and (context.preferences.addons[__package__].preferences.swg_root != "")
+
+
+    def invoke(self, context, event):
+        s=context.preferences.addons[__package__].preferences.swg_root
+        print(f"invoke with: {context.active_object.name}")     
+        for slot in context.active_object.material_slots:
+            mat = slot.material    
+            path=f'shader/{mat.name}.sht'        
+            real_shader_path = support.find_file(path,s)
+            if real_shader_path:
+                shader = swg_types.SWGShader(real_shader_path)
+                support.configure_material_from_swg_shader(mat,shader, s)
+            else:
+                print(f"WARNING: Couldn't locate real shader path for: {path}")
+
+        return {'FINISHED'}
+
+class SWGMenu(bpy.types.Menu):
+    bl_label = "SWG"
+    bl_idname = "VIEW3D_MT_SWG_menu"
+
+    def draw(self, context):
+        layout = self.layout            
+        layout.operator(SWG_Load_Materials_Operator.bl_idname, text=SWG_Load_Materials_Operator.bl_label)
+
+def draw_item(self, context):
+    layout = self.layout
+    layout.menu(SWGMenu.bl_idname)
+
 classes = (
     OBJECT_OT_addon_prefs_swg,
     SWGPreferences,
@@ -390,6 +433,8 @@ classes = (
     MGN_PT_export_option,
     ExportMGN,    
     MGN_PT_import_option,
+    SWG_Load_Materials_Operator,
+    SWGMenu,
 )
 
 
@@ -399,11 +444,13 @@ def register():
 
     bpy.types.TOPBAR_MT_file_import.append(import_operators)
     bpy.types.TOPBAR_MT_file_export.append(export_operators)
+    bpy.types.VIEW3D_HT_header.append(draw_item)
 
 
 def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(import_operators)
     bpy.types.TOPBAR_MT_file_export.remove(export_operators)
+    bpy.types.VIEW3D_HT_header.remove(draw_item)
 
     for cls in classes:
         bpy.utils.unregister_class(cls)

@@ -49,6 +49,9 @@ def import_mgn( context,
 
     for n in mgn.normals:
         blender_norms.append([n[0],n[1],-n[2]])
+    
+    scene_object = bpy.data.objects.new(mesh_name, mesh)
+    context.collection.objects.link(scene_object)
 
     faces_by_material=[]
     normals=[]
@@ -106,10 +109,12 @@ def import_mgn( context,
     mesh.use_auto_smooth = True
     mesh.normals_split_custom_set(normals)
     mesh.transform(global_matrix)
-    scene_object = bpy.data.objects.new(mesh_name, mesh)
-    context.collection.objects.link(scene_object)
     mesh.validate()
-    mesh.update()        
+    mesh.update()   
+    
+    for i, ozc in enumerate(mgn.occlusion_zones):
+        face_map = scene_object.face_maps.new(name=ozc[0])
+        face_map.add(ozc[1])   
 
     for flist in mesh.polygons: 
         for id, face_list in enumerate(faces_by_material):
@@ -154,7 +159,7 @@ def import_mgn( context,
 
     #print(f"Occulusions: {str(mgn.occlusions)}")
     for zone in mgn.occlusions:
-        scene_object[zone[0]] = zone[2]
+        scene_object["OZN_"+zone[0]] = zone[2]
 
     scene_object[f'OCC_LAYER'] = mgn.occlusion_layer
 

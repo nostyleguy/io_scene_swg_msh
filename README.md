@@ -4,9 +4,16 @@ A Blender add-on for importing and exporting Star Wars Galaxies static (.msh) an
 Should work with Blender 2.9+ and 3+
 ## Features
 
+### Material Import/Loading:
+* New in 2.0.2, you can (attempt to) load the SWG shaders' properties into Blender materials automatically. So far, only Base Color (image), Roughness (image), Specular (image) and Alpha (image) are supported. There's a lot of hacky code going on like assuming any SWG Shader whos effect name contains "invis", "alpha" or "water" should use an Alpha Blend "Blend Mode". 
+  * Set the "SWG Client Extract Dir" path in the add-on preferences. This is a directory containing the full directory structure from a "Full Client Extract" via SIE. It should be the directory which contains child directories like "appearance", "shader" and "texture"
+  * In the 3D View toolbar (contains menus like "View", "Select", "Object", etc), the very furthest right menu will be "SWG". From here, select the "Find and load materials" option. 
+  * If you named your materials identically to the shader filename (no preceding dir or exteion, just "concertina_a_aa7" for example), and the path is set correctly, the images and some settings should automatically be applied to the materials in Blender
+  * You can repeat selecting "Find and load materials" as often as you want (if you change a SWG Shader on disk, or want to change the shader completely), and it should keep any existing material assignments in the scene. 
+
 ### MSH Import/Export:
 * Import and Export SWG .msh file (versions 0004 and 0005)
-* Since version 2.0.0, multi-shader MSHs are imported as one Blender mesh with per-face material assignemnt. Materials are created and properly assigned per shader used in the .msh, but images aren't loaded yet. You can manually load the image texture yourself and it should work fine.
+* Since version 2.0.0, multi-shader MSHs are imported as one Blender mesh with per-face material assignemnt. Materials are created and properly assigned per shader used in the .msh
 * UVs: Multiple UV sets are fully supported for import/export per material. When 1 shader uses multiple UV channels, you need to be sure to use the "UVSets" custom property properly:
   * When an SPS is imported, the number of UV channels it used are added as a custom property, "UVSets", on the specific material (not the main object or mesh). 
   * If you are creating a new object, or want to add more UV sets, create a new UV Map in blender, uv map your faces like normal, and make sure the given material for the shader you are working with has a "UVSets" custom property with the correct number of UV sets assigned
@@ -33,8 +40,9 @@ Should work with Blender 2.9+ and 3+
   * Blends are imported as shape keys.
   * Occlusion layer (2 for most wearables) is stored in the custom property, "OCC_LAYER"
   * Skeleton name(s) are imported as a custom properties. The name of the property will be of the form SKTM_n where n is an integer. This allows multiple skeletons to be affected. The value of the property is the path to the skeleton, including the directory, e.g. "appearance/skeleton/all_b.skt".
-  * Occlusions are imported as Integer type custom properties. The name of the occlusion zone is "OZN_" plus the name of the occlusion zone; i.e "OZN_chest". The custom property value is 0 or 1, where 1 means occluded and 0 means not occluded.
-  * Shader name is imported as a material, in cases where there are multiple shaders, each shader is added as a new material.  Also,  each polygon in the mesh is properly assigned to each material.  However, each created material while having the proper shader name, will still only be a default blank material, without textures, shading, etc…  You can, however, load any textures associated with the SWG shader into blender, and they will map properly onto the mesh.  But you have to do this manually, the importer will not do this for you. 
+  * Occlusion zones are imported as Integer type custom properties. The name of the occlusion zone is "OZN_" plus the name of the occlusion zone; i.e "OZN_chest". The custom property value is 0 or 1, where 1 means occluded by this model and 0 means not occluded.
+  * OCZ Support: You can specify the Occlusion Zones on this model by using Blender's "Face Map" feature. This is similar to a Vertex Group, but with faces. The name of the group must be either an occlusion zone ("chest", "torso_f") OR a colon-separated list of occlusion zones ("chest:torso_f"). Import a model like armor_padded_s01_chest_plate_m_l0.mgn to see an example. 
+  * Shader name is imported as a material, in cases where there are multiple shaders, each shader is added as a new material.  Also,  each polygon in the mesh is properly assigned to each material.
   * UVs are imported for each shader, and stored in a single UV file within blender.  Again, the UVs are assigned properly to each Poly and material that gets created.  This allows you to import any and all textures from the SWG shader files into blender, and they will map properly.   Please be aware that SWG UVs are written to the MGN files Upside-Down.  Meaning they have to be flipped upright on import for them to work properly in blender.   
 * This plugin will export a single object from blender into the MGN file format for SWG.  Items exported are the mesh, UV, Shader names, Bone names, bone weights, Blends, Occlusions and skeleton name.
   * Each item works the same as has already been described above for the importer.   This exporter will fail if multiple objects are selected for export.
@@ -58,10 +66,6 @@ Some additional function information.
   * DOT3 (aka tangents, aka normalmap coords, aka per-pixel lighting coords) are optionally exportable since some shaders don't want them. Controlled by the export option, "DOT3" 
 
 Limitations:
-* No support for hardpoints (either dynamic or static) yet. These are sometimes used for things like earing placeholders on species' heads. I have a plan for this
-* No support for the TRTS (Texture Renderers) form yet. This is necessary to let certain species' body parts have different textured skin, tatoos, etc.
-* No Support for per-triangle occlusions (OITL)
-* No support for the FOZC or OZC occlusion chunks. Most wearables seem fine without these, but it's possible something will goof up without them. 
-* Material management leaves a lot to be desired. If you import multiple models that use the same material, it will create 2 materials, the second with a postfixed number (armor_padded_buckle_as9.001), and this entire name WILL be written as the shader into the PSDT chunk, which isn't what you want. You can manually assign the original material back to the slot, and it will work.  
+* Hardpoints and Texture Renderers are stored as binary data in a Custom Property on import, but there is no edit support for these. The existing data will be rewritten at export.  
 
 

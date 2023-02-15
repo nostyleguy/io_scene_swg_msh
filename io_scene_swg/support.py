@@ -40,6 +40,27 @@ def configure_material_from_swg_shader(material, shader, root_dir):
     ma_wrap.use_nodes = True
     main_image = None
 
+    node_tree = material.node_tree
+
+    for node in node_tree.nodes:
+        if node.type == 'BSDF_PRINCIPLED': 
+            if node.inputs['Alpha'].is_linked:
+                image_node =  node.inputs['Alpha'].links[0].from_node
+                print(f"Removing Alpha: {image_node.name}")
+                node_tree.nodes.remove(image_node)                
+            if node.inputs['Base Color'].is_linked:
+                image_node =  node.inputs['Base Color'].links[0].from_node
+                print(f"Removing Base: {image_node.name}")
+                node_tree.nodes.remove(image_node)              
+            if node.inputs['Roughness'].is_linked:
+                image_node =  node.inputs['Roughness'].links[0].from_node
+                print(f"Removing Roughness: {image_node.name}")
+                node_tree.nodes.remove(image_node)            
+            if node.inputs['Specular'].is_linked:
+                image_node =  node.inputs['Specular'].links[0].from_node
+                print(f"Removing Specular: {image_node.name}")
+                node_tree.nodes.remove(image_node)
+
     if shader.effect:
         material["Effect"] = shader.effect
         
@@ -58,6 +79,9 @@ def configure_material_from_swg_shader(material, shader, root_dir):
             ma_wrap.alpha_texture.texcoords = 'UV' 
         else:
             ma_wrap.alpha = 0.1
+    else:
+        material.blend_method = "OPAQUE"
+        ma_wrap.alpha = 1
 
     if shader.normal:
         normal_image = load_shared_image(shader.normal, root_dir)
