@@ -1203,7 +1203,7 @@ class SWGMgn(object):
         iff.insert_uint32(len(self.blends))
         
         iff.insert_uint16(len(self.occlusions))
-        iff.insert_uint16(len(self.occlusion_zones))
+        iff.insert_uint16(len(self.occlusion_zones) if self.occlusion_zones else 0)
         iff.insert_uint16(self.get_zones_this_occludes())
         iff.insert_uint16(self.occlusion_layer) 
         iff.exitChunk("INFO")
@@ -1301,7 +1301,7 @@ class SWGMgn(object):
                 iff.insert_int16(n)
             iff.exitChunk("FOZC")
 
-        if len(self.occlusion_zones) > 0:
+        if self.occlusion_zones and len(self.occlusion_zones) > 0:
             iff.insertChunk("OZC ")
             for occ in self.occlusion_zones:
                 zones=occ[0].split(':')                
