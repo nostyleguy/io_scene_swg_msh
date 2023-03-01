@@ -148,8 +148,15 @@ class SWGShader(object):
 
     def __str__(self):
         return f"[{self.path}, {self.main}, {self.spec}]"
+        
     def __repr__(self):
         return self.__str__()
+
+    def stripped_shader_name(self):
+        if self.path == "":
+            return "defaultappearance"
+        else:
+            return (support.clean_path(self.path).split('\\')[-1]).split('.')[0]
 
     def infer_features_from_effect(self):
         if self.effect:

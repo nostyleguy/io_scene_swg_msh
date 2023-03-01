@@ -219,9 +219,4 @@ def save(context,
     now = time.time()
     print(f"Successfully wrote: {filepath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
 
-    apt_path =  (functools.reduce(os.path.join,[s, "appearance", current_obj.name]) + ".apt").lower()
-    apt_reference = (functools.reduce(os.path.join,["mesh", current_obj.name]) + ".msh").lower()
-    apt = swg_types.AptFile(apt_path, apt_reference)
-    apt.write()
-
     return {'FINISHED'}

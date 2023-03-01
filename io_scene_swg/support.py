@@ -15,17 +15,21 @@ def find_file(relative_path, root):
         return None
 
 def load_shared_image(path, root):   
-    path = find_file(path, root)
-    png_path = path.replace(".dds",".png")
+    abs_path = find_file(path, root)
+    if not abs_path:
+        print (f"Error! Couldn't find image: {path}")
+        return None
+
+    png_path = abs_path.replace(".dds",".png")
     image = None
-    if path:
+    if abs_path:
         shortname = os.path.basename(png_path)
         for img in bpy.data.images: 
             if shortname == img.name:
                 image = img
                 break
     if image == None:
-        temp = load_image(path, ".") 
+        temp = load_image(abs_path, ".") 
         temp.file_format = "PNG"  
         temp.save_render(png_path)
         image = load_image(png_path, ".")

@@ -4,12 +4,12 @@ A Blender add-on for importing and exporting Star Wars Galaxies static (.msh) an
 Should work with Blender 2.9+ and 3+
 ## Features
 
-### Material Import/Loading:
-* New in 2.0.2, you can (attempt to) load the SWG shaders' properties into Blender materials automatically. So far, only Base Color (image), Roughness (image), Specular (image) and Alpha (image) are supported. There's a lot of hacky code going on like assuming any SWG Shader whos effect name contains "invis", "alpha" or "water" should use an Alpha Blend "Blend Mode". 
-  * Set the "SWG Client Extract Dir" path in the add-on preferences. This is a directory containing the full directory structure from a "Full Client Extract" via SIE. It should be the directory which contains child directories like "appearance", "shader" and "texture"
-  * In the 3D View toolbar (contains menus like "View", "Select", "Object", etc), the very furthest right menu will be "SWG". From here, select the "Find and load materials" option. 
-  * If you named your materials identically to the shader filename (no preceding dir or exteion, just "concertina_a_aa7" for example), and the path is set correctly, the images and some settings should automatically be applied to the materials in Blender
-  * You can repeat selecting "Find and load materials" as often as you want (if you change a SWG Shader on disk, or want to change the shader completely), and it should keep any existing material assignments in the scene. 
+### General SWG helper functions
+* In the 3D View toolbar (contains menus like "View", "Select", "Object", etc), the very furthest right menu will be "SWG". This is where you can find some helper functions. NOTE: For many of these to work, you need to set the "SWG Client Extract Dir" path in the add-on preferences. This is a directory containing the full directory structure from a "Full Client Extract" via SIE. It should be the directory which contains child directories like "appearance", "shader" and "texture"
+  * "Find and load materials": If you named your materials identically to a shader filename (no preceding dir or exteion, just "concertina_a_aa7" for example), and the path is set correctly, the images and some settings should automatically be applied to the materials in Blender
+    * You can repeat selecting "Find and load materials" as often as you want (if you change a SWG Shader on disk, or want to change the shader completely), and it should keep any existing material assignments in the scene. 
+  * "Add SWG Shader as Material": Similar to the above, but opens a file browser to select a SWG shader. The Shader is converted to a Material and added in a new Material Slot on the mesh. 
+  * "Create a SWG .apt for this .msh": Creates a very simple .apt file at the browsed path representing the APT->MSH file chain. The reference inside the APT will always be "mesh/<currently selected object name>.msh" so change your object name accordingly. No support for APT->LOD->MSH or any other file chain yet. 
 
 ### MSH Import/Export:
 * Import and Export SWG .msh file (versions 0004 and 0005)

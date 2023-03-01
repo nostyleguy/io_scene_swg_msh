@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 3),
+    "version": (2, 0, 4),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh and .mgn",
@@ -71,7 +71,7 @@ from bpy_extras.io_utils import (
         axis_conversion,
         )
 
-import bpy
+import bpy, os, functools
 from bpy.types import Operator, AddonPreferences
 from bpy.props import StringProperty, IntProperty, BoolProperty
 
@@ -410,6 +410,78 @@ NOTE: If this option is disabled, you need to set the "SWG Client Extract Dir" p
 
         return {'FINISHED'}
 
+class SWG_Add_Material_Operator(bpy.types.Operator):
+    bl_idname = "object.swg_add_material"
+    bl_label = "Add SWG Shader as Material"
+    bl_description = '''If this option is disabled, you need to set the "SWG Client Extract Dir" property in the add-on preferences, and have 1 object selected'''
+ 
+
+    filename_ext = ".sht"
+    filter_glob : StringProperty(
+        default="*.sht",
+        options={'HIDDEN'},
+        )
+    filepath: StringProperty(default="*.sht",subtype='FILE_PATH')
+
+    
+    @classmethod
+    def poll(cls, context):
+        return context.active_object != None and (context.preferences.addons[__package__].preferences.swg_root != "")
+
+    def execute(self, context):
+        s=context.preferences.addons[__package__].preferences.swg_root
+        context.active_object.data.materials.append(None)
+        shader = swg_types.SWGShader(support.clean_path(self.properties.filepath))
+        material = bpy.data.materials.new(shader.stripped_shader_name()) 
+        context.active_object.material_slots[len(context.active_object.material_slots)-1].material = material
+        support.configure_material_from_swg_shader(material, shader, s)
+        return {'FINISHED'}
+ 
+    def invoke(self, context, event):
+        self.filepath = context.preferences.addons[__package__].preferences.swg_root +"/shader/"
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+ 
+    def draw(self, context):
+        pass
+
+class SWG_Create_Apt_For_Msh(bpy.types.Operator):
+    bl_idname = "object.swg_create_apt_msh_material"
+    bl_label = "Create a SWG .apt for this .msh"
+    bl_description = '''If this option is disabled, you need to have 1 object selected'''
+ 
+
+    filename_ext = ".apt"
+    filter_glob : StringProperty(
+        default="*.apt",
+        options={'HIDDEN'},
+        )
+    filepath: StringProperty(default="test.apt",subtype='FILE_PATH')
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object != None
+
+
+    def execute(self, context): 
+
+        apt_path =  self.properties.filepath 
+        apt_reference = (functools.reduce(os.path.join,["mesh", context.active_object.name]) + ".msh").lower()
+        print(f"Writing apt: {apt_path} For mesh: {apt_reference}")
+        apt = swg_types.AptFile(apt_path, apt_reference)
+        apt.write()
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        default_filename=context.active_object.name.lower()+".apt"
+        self.filename = default_filename
+        self.filepath = default_filename
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+ 
+    def draw(self, context):
+        pass
+
 class SWGMenu(bpy.types.Menu):
     bl_label = "SWG"
     bl_idname = "VIEW3D_MT_SWG_menu"
@@ -417,6 +489,8 @@ class SWGMenu(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout            
         layout.operator(SWG_Load_Materials_Operator.bl_idname, text=SWG_Load_Materials_Operator.bl_label)
+        layout.operator(SWG_Add_Material_Operator.bl_idname, text=SWG_Add_Material_Operator.bl_label)
+        layout.operator(SWG_Create_Apt_For_Msh.bl_idname, text=SWG_Create_Apt_For_Msh.bl_label)
 
 def draw_item(self, context):
     layout = self.layout
@@ -434,6 +508,8 @@ classes = (
     ExportMGN,    
     MGN_PT_import_option,
     SWG_Load_Materials_Operator,
+    SWG_Add_Material_Operator,
+    SWG_Create_Apt_For_Msh,
     SWGMenu,
 )
 
