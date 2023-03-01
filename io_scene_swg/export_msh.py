@@ -66,7 +66,7 @@ def save(context,
     objects = context.selected_objects
 
     if not (len(objects) == 1):
-        return {'ERROR'}
+        return {'CANCELLED'}
 
     current_obj = None
     for ob_main in objects:

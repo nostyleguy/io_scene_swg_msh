@@ -112,9 +112,10 @@ def import_mgn( context,
     mesh.validate()
     mesh.update()   
     
-    for i, ozc in enumerate(mgn.occlusion_zones):
-        face_map = scene_object.face_maps.new(name=ozc[0])
-        face_map.add(ozc[1])   
+    if mgn.occlusion_zones:
+        for i, ozc in enumerate(mgn.occlusion_zones):
+            face_map = scene_object.face_maps.new(name=ozc[0])
+            face_map.add(ozc[1])   
 
     for flist in mesh.polygons: 
         for id, face_list in enumerate(faces_by_material):
