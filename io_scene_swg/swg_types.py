@@ -28,6 +28,99 @@ from . import vertex_buffer_format
 from mathutils import Vector
 
 SWG_ROOT=None
+class SktFile(object):
+    __slots__ = ('path', 'bones')
+    def __init__(self, path, bones = None):
+        self.path=path
+        self.bones=bones
+
+    def __str__(self):
+        return f"{self.path}: Bones: {self.bones}"
+        
+    def __repr__(self):
+        return self.__str__()
+            
+    def load(self):
+        iff = nsg_iff.IFF(filename=self.path)
+        iff.enterForm("SLOD")
+        version=iff.getCurrentName()
+        if version in ['0000']:
+            iff.enterForm(version)
+            iff.enterChunk("INFO")
+            iff.exitChunk("INFO")
+            iff.enterForm("SKTM")
+            
+            sktm_version=iff.getCurrentName()
+            if sktm_version in ['0002']:
+                iff.enterAnyForm()
+                iff.enterChunk("INFO")
+                iff.exitChunk("INFO")
+                iff.enterChunk("NAME")
+                if not self.bones:
+                    self.bones = []
+                while not iff.atEndOfForm():
+                    self.bones.append(iff.read_string().lower())
+                iff.exitChunk("NAME")
+                iff.exitForm()
+
+            else:
+                print(f"ERROR: Unsupported SKTM Version: {self.path} Version: {sktm_version}")
+                return
+        else:
+            print(f"ERROR: Unsupported SLOD Version: {self.path} Version: {version}")
+            return
+class LmgFile(object):
+    __slots__ = ('path', 'mgns')
+    def __init__(self, path, mgns):
+        self.path = path
+        self.mgns = mgns
+
+    def write(self):
+        iff = nsg_iff.IFF(initial_size=100000)      
+        iff.insertForm("MLOD")
+        iff.insertForm("0000")
+
+        iff.insertChunk("INFO")
+        iff.insert_int32(len(self.mgns))
+        iff.insert_bool(False)
+        iff.exitChunk("INFO")
+        for mgn in self.mgns:          
+            iff.insertChunk("NAME")        
+            iff.insertChunkString("appearance/mesh/"+mgn+".mgn")
+            iff.exitChunk("NAME")
+
+        iff.write(self.path)
+
+class SatFile(object):
+    __slots__ = ('path', 'mgns', 'skeletons')
+    def __init__(self, path, mgns, skeletons):
+        self.path = path
+        self.mgns = mgns
+        self.skeletons = skeletons
+
+    def write(self):
+        iff = nsg_iff.IFF(initial_size=100000)      
+        iff.insertForm("SMAT")
+        iff.insertForm("0003")
+
+        iff.insertChunk("INFO")
+        iff.insert_int32(len(self.mgns))
+        iff.insert_int32(len(self.skeletons))
+        iff.insert_bool(False)
+        iff.exitChunk("INFO")
+        
+        iff.insertChunk("MSGN")
+        for mgn in self.mgns:            
+            iff.insertChunkString("appearance/mesh/"+mgn+".lmg")
+        iff.exitChunk("MSGN")
+        
+        iff.insertChunk("SKTI")
+        for skel in self.skeletons:            
+            iff.insertChunkString(skel)            
+            iff.insertChunkString("")
+        iff.exitChunk("SKTI")
+        iff.write(self.path)
+
 class AptFile(object):
     __slots__ = ('path', 'filename')
     def __init__(self, path, filename):
@@ -1378,9 +1471,14 @@ class SWGMgn(object):
                     iff.insert_uint32(len(prim) // 3)
                     for value in prim:
                         if global_tri_index % 3 == 0:
+                            found=False
                             for i, occ in enumerate(self.occlusion_zones):
                                 if (global_tri_index // 3) in occ[1]:
                                     iff.insert_int16(i)
+                                    found=False
+                            if not found:
+                                print(f"WARNING: Tri: {global_tri_index % 3} Not in any Face Map (occlusion zone). Assuming 0!")
+                                iff.insert_int16(0)
                         iff.insert_uint32(value)
                         global_tri_index += 1
                     iff.exitChunk("OITL")

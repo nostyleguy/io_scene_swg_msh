@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 5),
+    "version": (2, 0, 6),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh and .mgn",
@@ -71,10 +71,9 @@ from bpy_extras.io_utils import (
         axis_conversion,
         )
 
-import bpy, os, functools
+import bpy, os, functools, base64
 from bpy.types import Operator, AddonPreferences
 from bpy.props import StringProperty, IntProperty, BoolProperty
-
 
 class SWGPreferences(AddonPreferences):
     # this must match the add-on name, use '__package__'
@@ -446,7 +445,7 @@ class SWG_Add_Material_Operator(bpy.types.Operator):
         pass
 
 class SWG_Create_Apt_For_Msh(bpy.types.Operator):
-    bl_idname = "object.swg_create_apt_msh_material"
+    bl_idname = "object.swg_create_apt_msh"
     bl_label = "Create a SWG .apt for this .msh"
     bl_description = '''If this option is disabled, you need to have 1 object selected'''
  
@@ -482,15 +481,183 @@ class SWG_Create_Apt_For_Msh(bpy.types.Operator):
     def draw(self, context):
         pass
 
+class SWG_Create_Sat_For_Mgn(bpy.types.Operator):
+    bl_idname = "object.swg_create_sat_mgn"
+    bl_label = "Create a SWG .sat and .lmg for this .mgn"
+    bl_description = '''If this option is disabled, you need to have 1 object selected'''
+ 
+
+    filename_ext = ".sat"
+    filter_glob : StringProperty(
+        default="*.sat",
+        options={'HIDDEN'},
+        )
+    filepath: StringProperty(default="test.sat",subtype='FILE_PATH')
+
+    num_lods: IntProperty(
+            name="Number LODs",
+            min=1, max=10,
+            default=4,
+            )
+    @classmethod
+    def poll(cls, context):
+        return context.active_object != None
+
+
+    def execute(self, context): 
+
+        sat_path =  self.properties.filepath 
+
+        lmg_path = os.path.dirname(sat_path)+"/mesh/"+ context.active_object.name.lower()+".lmg"
+        lmg = swg_types.LmgFile(lmg_path, [context.active_object.name.lower()]* self.num_lods)
+        lmg.write()
+
+        skels=[]
+        for cp in context.active_object.keys():
+            if cp.startswith("SKTM_"):
+                skels.append(context.active_object[cp])
+                print(f"Added SKTM: {context.active_object[cp]}")
+        sat = swg_types.SatFile(sat_path, [context.active_object.name.lower()], skels)
+        sat.write()
+
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        default_filename=context.active_object.name.lower()+".sat"
+        self.filename = default_filename
+        self.filepath = default_filename
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+ 
+    def draw(self, context):
+        
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+        layout.prop(operator, "num_lods")
+
+class SWG_Load_Skeleton_For_MGN(bpy.types.Operator):
+    bl_idname = "object.swg_load_skt_mgn"
+    bl_label = "Load Bones from skeleton"
+    bl_description = '''If this option is disabled, you need to have 1 object selected'''
+ 
+
+    filename_ext = ".skt"
+    filter_glob : StringProperty(
+        default="*.skt",
+        options={'HIDDEN'},
+        )
+    filepath: StringProperty(default="test.skt",subtype='FILE_PATH')
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object != None
+
+    def execute(self, context): 
+        skt_path =  self.properties.filepath
+        skt = swg_types.SktFile(skt_path)
+        skt.load()
+        print(f"SKT: {skt}")
+
+        for bone in skt.bones:
+            exists = False
+            for vg in context.active_object.vertex_groups:
+                if vg.name == bone:
+                    exists = True
+                    print (f"Skipping re-adding bone: {bone}")
+            if not exists:
+                context.active_object.vertex_groups.new(name=bone)
+                print (f"Added bone: {bone}")
+
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        # default_filename=context.active_object.name.lower()+".skt"
+        # self.filepath = default_filename        
+        if context.preferences.addons[__package__].preferences.swg_root != "":            
+            self.filepath = context.preferences.addons[__package__].preferences.swg_root +"/appearance/skeleton/"
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+ 
+    def draw(self, context):
+        pass
+class SWG_Initialize_MGN_From_Existing(bpy.types.Operator):
+    bl_idname = "object.swg_initialize_mgn"
+    bl_label = "Initialize MGN data (occlusions, bones, blends) from an existing MGN"
+    bl_description = '''If this option is disabled, you need to have 1 object selected'''
+ 
+
+    filename_ext = ".mgn"
+    filter_glob : StringProperty(
+        default="*.mgn",
+        options={'HIDDEN'},
+        )
+    filepath: StringProperty(default="test.mgn",subtype='FILE_PATH')
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object != None
+
+    def execute(self, context): 
+        mgn_path =  self.properties.filepath
+        mgn = swg_types.SWGMgn(mgn_path,context.preferences.addons[__package__].preferences.swg_root)
+        mgn.load()
+        scene_object = context.active_object
+        print(f"mgn: {mgn}")
+
+        for bone in mgn.bone_names:
+            vg = scene_object.vertex_groups.new(name=bone)
+
+        scene_object.shape_key_add(name='Basis')
+        for i, blend in enumerate(mgn.blends):
+            sk = scene_object.shape_key_add(name=blend.name)
+        
+        for i, skel in enumerate(mgn.skeletons):
+            scene_object[f'SKTM_{i}'] = skel
+
+        for zone in mgn.occlusions:
+            scene_object["OZN_"+zone[0]] = zone[2]
+
+        scene_object[f'OCC_LAYER'] = mgn.occlusion_layer
+
+        if mgn.binary_hardpoints:
+            scene_object["HPTS"] = base64.b64encode(mgn.binary_hardpoints).decode('ASCII')
+
+        if mgn.binary_trts:
+            scene_object["TRTS"] = base64.b64encode(mgn.binary_trts).decode('ASCII')
+
+        if mgn.occlusion_zones:
+            for i, ozc in enumerate(mgn.occlusion_zones):
+                face_map = scene_object.face_maps.new(name=ozc[0])
+                face_map.add(ozc[1])
+
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        # default_filename=context.active_object.name.lower()+".skt"
+        # self.filepath = default_filename        
+        if context.preferences.addons[__package__].preferences.swg_root != "":            
+            self.filepath = context.preferences.addons[__package__].preferences.swg_root +"/appearance/mesh/"
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+ 
+    def draw(self, context):
+        pass
+
 class SWGMenu(bpy.types.Menu):
     bl_label = "SWG"
     bl_idname = "VIEW3D_MT_SWG_menu"
 
     def draw(self, context):
-        layout = self.layout            
+        layout = self.layout        
+        layout.operator(SWG_Initialize_MGN_From_Existing.bl_idname, text=SWG_Initialize_MGN_From_Existing.bl_label)    
         layout.operator(SWG_Load_Materials_Operator.bl_idname, text=SWG_Load_Materials_Operator.bl_label)
         layout.operator(SWG_Add_Material_Operator.bl_idname, text=SWG_Add_Material_Operator.bl_label)
         layout.operator(SWG_Create_Apt_For_Msh.bl_idname, text=SWG_Create_Apt_For_Msh.bl_label)
+        layout.operator(SWG_Create_Sat_For_Mgn.bl_idname, text=SWG_Create_Sat_For_Mgn.bl_label)
 
 def draw_item(self, context):
     layout = self.layout
@@ -510,6 +677,9 @@ classes = (
     SWG_Load_Materials_Operator,
     SWG_Add_Material_Operator,
     SWG_Create_Apt_For_Msh,
+    SWG_Create_Sat_For_Mgn,
+    SWG_Load_Skeleton_For_MGN,
+    SWG_Initialize_MGN_From_Existing,
     SWGMenu,
 )
 
