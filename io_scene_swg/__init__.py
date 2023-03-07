@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 6),
+    "version": (2, 0, 7),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh and .mgn",
@@ -497,7 +497,7 @@ class SWG_Create_Sat_For_Mgn(bpy.types.Operator):
     num_lods: IntProperty(
             name="Number LODs",
             min=1, max=10,
-            default=4,
+            default=1,
             )
     @classmethod
     def poll(cls, context):

@@ -1105,10 +1105,11 @@ class SWGMgn(object):
                     blt.positions.append( (iff.read_uint32(), (iff.read_float(), iff.read_float(), iff.read_float())))
                 iff.exitChunk("POSN")
 
-                iff.enterChunk("NORM")
-                while not iff.atEndOfForm():
-                    blt.normals.append( (iff.read_uint32(), (iff.read_float(), iff.read_float(), iff.read_float())))
-                iff.exitChunk("NORM")
+                if iff.getCurrentName == "NORM":
+                    iff.enterChunk("NORM")
+                    while not iff.atEndOfForm():
+                        blt.normals.append( (iff.read_uint32(), (iff.read_float(), iff.read_float(), iff.read_float())))
+                    iff.exitChunk("NORM")
 
                 if iff.getCurrentName() == "DOT3":
                     iff.enterChunk("DOT3")     
