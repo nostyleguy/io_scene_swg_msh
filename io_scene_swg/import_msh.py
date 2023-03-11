@@ -178,6 +178,13 @@ def load_new(context,
         bpy.context.collection.objects.link(hpntadded)
 
     obj["Collision"] = base64.b64encode(msh.collision).decode('ASCII')
+    # collisionObj = bpy.data.objects.new(name="COLLISION", object_data=None)
+    # collisionObj.empty_display_type = "SPHERE"
+    # collisionObj.scale=(3,1,2)
+    # collisionObj.empty_display_size = 1
+    # collisionObj.parent = obj
+    #bpy.context.collection.objects.link(collisionObj)
+
     obj["Floor"] = msh.floor
 
     print(f"Success!")

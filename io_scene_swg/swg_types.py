@@ -1476,9 +1476,10 @@ class SWGMgn(object):
                             for i, occ in enumerate(self.occlusion_zones):
                                 if (global_tri_index // 3) in occ[1]:
                                     iff.insert_int16(i)
-                                    found=False
+                                    found=True
+                                    break
                             if not found:
-                                print(f"WARNING: Tri: {global_tri_index % 3} Not in any Face Map (occlusion zone). Assuming 0!")
+                                print(f"WARNING: Tri: {global_tri_index // 3} Not in any Face Map (occlusion zone). Assuming 0!")
                                 iff.insert_int16(0)
                         iff.insert_uint32(value)
                         global_tri_index += 1
