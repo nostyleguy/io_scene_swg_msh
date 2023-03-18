@@ -20,7 +20,7 @@ Should work with Blender 2.9+ and 3+
   * If you are creating a new object, or want to add more UV sets, create a new UV Map in blender, uv map your faces like normal, and make sure the given material for the shader you are working with has a "UVSets" custom property with the correct number of UV sets assigned
 * DOT3: Imports the existance (or not) of DOT3 normalmap coordinates (tangents?), but not the tangents themselves since Blender will reclaculate these. Stored in the "DOT3" custom property per material. If you are creating a new object and want DOT3 for any/all shaders, you need to add a "DOT3" custom property to the material(s) with a value of "1"
 * Normals: Imported normals are stored in Blenders' split normals. Split normals are exported. 
-* Vertex Colors: Not supported (can read a mesh with them, but will be unused and lost). No export support.
+* Vertex Colors: Imports color0 and color1 into mesh Color Attributes if present. Adds a Custom Property "Color0" and/or "Color1" onto Materials representing SPSs that use vertex colors. The exporter looks for this Custom Property to determine whether to export them since each SPS can have them or not.
 * Extents: Automatically compute Extents (box and sphere)
 * Collision Extents: Reads CollisionExtents and stores their binary data in a Custom Property so they can be exported. No edit support, but non-destructive 
 * Floor: Saves floor file path in custom property, "Floor". You can add/edit this for export.

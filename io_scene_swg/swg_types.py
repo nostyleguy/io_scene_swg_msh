@@ -206,7 +206,8 @@ class SWGVertex(object):
         self.texs = []
         self.pos = None
         self.normal = None
-        self.color = None
+        self.color0 = None
+        self.color1 = None
 
     def __str__(self):
         return f'P: {self.pos} N: {self.normal} UV0: {self.texs[0]}'
@@ -392,6 +393,12 @@ class SPS(object):
             return (vertex_buffer_format.getTextureCoordinateSetDimension(self.flags, num_uv_sets - 1) == 4)
         return False
 
+    def hasColor0(self):
+        return vertex_buffer_format.hasColor0(self.flags)
+
+    def hasColor1(self):
+        return vertex_buffer_format.hasColor1(self.flags)
+
     def getNumUVSets(self):
         num_uv_sets = vertex_buffer_format.getNumberOfTextureCoordinateSets(self.flags)
         if(num_uv_sets > 0):
@@ -444,6 +451,17 @@ class SWGMesh(object):
     def debug_flags(self, flags, sps_no):
 
         num_uv_sets = vertex_buffer_format.getNumberOfTextureCoordinateSets(flags)
+        print(f'Mesh: {self.filename} SPS: {sps_no} Flags: {flags}')
+        print(f'  hasPosition: {vertex_buffer_format.hasPosition(flags)}')
+        print(f'  isTransformed: {vertex_buffer_format.isTransformed(flags)}')
+        print(f'  hasNormal: {vertex_buffer_format.hasNormal(flags)}')
+        print(f'  hasColor0: {vertex_buffer_format.hasColor0(flags)}')
+        print(f'  hasColor1: {vertex_buffer_format.hasColor1(flags)}')
+        print(f'  hasPointSize: {vertex_buffer_format.hasPointSize(flags)}')
+        print(f'  uvSets: {vertex_buffer_format.getNumberOfTextureCoordinateSets(flags)}')
+        for i in range(0, num_uv_sets):            
+            print(f'  uvDim [{i}]: {vertex_buffer_format.getTextureCoordinateSetDimension(flags, i)}')
+
         if(num_uv_sets > 0) and (vertex_buffer_format.getTextureCoordinateSetDimension(flags, num_uv_sets - 1) == 4):         
             print(f'Mesh: {self.filename} SPS: {sps_no} Flags: {flags}: Has DOT3!')
 
@@ -475,10 +493,24 @@ class SWGMesh(object):
             point_size = iff.read_float() # unused
 
         if vertex_buffer_format.hasColor0(flags):
-            v.color = iff.read_uint32()
+            # NSG Seems like this should be ARGB per SOE code, but that makes 
+            # the Anchorhead Cantina look gross. Used trial and error to determine
+            # order: BGRA
+            b = iff.read_color()
+            g = iff.read_color()
+            r = iff.read_color()
+            a = iff.read_color()
+            v.color0 = [r,g,b,a]
 
         if vertex_buffer_format.hasColor1(flags):
-            color1 = iff.read_uint32() # unused
+            # NSG Seems like this should be ARGB per SOE code, but that makes 
+            # the Anchorhead Cantina look gross. Used trial and error to determine
+            # order: BGRA
+            b = iff.read_color()
+            g = iff.read_color()
+            r = iff.read_color()
+            a = iff.read_color()
+            v.color1 = [r,g,b,a]
 
         for i in range(0, num_uv_sets):
             dim = vertex_buffer_format.getTextureCoordinateSetDimension(flags, i)
@@ -782,16 +814,20 @@ class SWGMesh(object):
             #iff.insert_uint32(4357)
             #iff.insert_uint32(53765)
             iff.insert_uint32(sps.flags)
+            self.debug_flags(sps.flags, i)
             iff.insert_uint32(len(sps.verts))
             iff.exitChunk("INFO")
             iff.insertChunk("DATA")
             for v in sps.verts:
                 iff.insertFloatVector3((v.pos.x, v.pos.y, v.pos.z))
                 iff.insertFloatVector3((v.normal.x, v.normal.y, v.normal.z))
-                # if len(v.texs) > 0 and (len(v.texs[0]) > 0):
-                #     iff.insertFloatVector2((v.texs[0][0], v.texs[0][1]))
-                # else:                    
-                #     iff.insertFloatVector2((0,0))
+
+                if vertex_buffer_format.hasColor0(sps.flags):
+                    iff.insert_color(v.color0)
+
+                if vertex_buffer_format.hasColor1(sps.flags):
+                    iff.insert_color(v.color1)
+                
                 for uv_set in v.texs:
                     for value in uv_set:
                         iff.insertFloat(value)

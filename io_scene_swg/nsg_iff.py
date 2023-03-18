@@ -1,6 +1,7 @@
 import struct, io, builtins, os
 import time
 import datetime
+import numpy 
 
 timesExpanded = 0
 class StackFrame():
@@ -166,6 +167,9 @@ class IFF():
 
     def read_uint16(self):
         return int.from_bytes(self.read_misc(2), byteorder='little', signed=False)
+
+    def read_color(self):
+        return float(int.from_bytes(self.read_misc(1), byteorder='little', signed=False))/255.0
 
     def read_byte(self):
         return self.read_misc(1)
@@ -373,6 +377,20 @@ class IFF():
 
     def insert_uint32(self, i):
         self.insertChunkData(int.to_bytes(i, 4, byteorder="little", signed=False))
+    
+    def insert_color(self, color):
+        r=int(numpy.clip(color[0]*255, 0, 255))
+        g=int(numpy.clip(color[1]*255, 0, 255))
+        b=int(numpy.clip(color[2]*255, 0, 255))
+        a=int(numpy.clip(color[3]*255, 0, 255))
+        
+        # NSG Seems like this should be ARGB per SOE code, but that makes 
+        # the Anchorhead Cantina look gross. Used trial and error to determine
+        # order: BGRA
+        self.insert_byte(b)
+        self.insert_byte(g)
+        self.insert_byte(r)
+        self.insert_byte(a)
 
     def insertIff(self, iff):
         #make sure the data array can handle this addition

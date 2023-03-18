@@ -72,11 +72,16 @@ def load_new(context,
     faces_by_material = {}
     materials_by_face_index = []
     normals=[]
-    verts = []    
+    verts = []   
+    color0 = []
+    color1 = []
     uvs_by_depth = {}
 
     highest_vert_ind=0
     global_loop_index=0
+    
+    any_sps_has_color0 = False
+    any_sps_has_color1 = False
     for index, sps in enumerate(msh.spss):
         
         num_uv_sets = sps.getNumUVSets()
@@ -97,15 +102,19 @@ def load_new(context,
 
         material["DOT3"] = sps.hasDOT3()
         material["UVSets"] = num_uv_sets
+        material["Color0"] = sps.hasColor0()
+        material["Color1"] = sps.hasColor1()
+
         if sps.real_shader: 
            support.configure_material_from_swg_shader(material, sps.real_shader, s) 
 
-        mesh.materials.append(material) 
+        mesh.materials.append(material)        
 
         uvs = []
         for ind, vert in enumerate(sps.verts):
             verts.append((-vert.pos.x, vert.pos.y, vert.pos.z))
-
+            
+            
         for tri in sps.tris:
             p3 = tri.p3 + highest_vert_ind
             p2 = tri.p2 + highest_vert_ind
@@ -120,6 +129,19 @@ def load_new(context,
 
             for loop_index, vert_index in enumerate([tri.p3, tri.p2, tri.p1]):
                 vert = sps.verts[vert_index]
+
+                if sps.hasColor0():
+                    any_sps_has_color0 = True
+                    color0.append(vert.color0)
+                else:
+                    color0.append([1,1,1,1])
+                    
+                if sps.hasColor1():
+                    any_sps_has_color1 = True
+                    color1.append(vert.color1)
+                else:
+                    color1.append([1,1,1,1])
+
 
                 for uvi in range(0, num_uv_sets):
                     uv = vert.texs[uvi] 
@@ -159,8 +181,25 @@ def load_new(context,
         print(f"SPS {index}: Removed: {before - after} verts")
         bm.free() 
         print(f"Done!")
-    
+
+
     mesh.transform(global_matrix)
+
+    if any_sps_has_color0:
+        mesh.vertex_colors.new(name="color0")
+        color_layer = mesh.vertex_colors["color0"]
+        for idx in range(0, len(color0)):
+            color_layer.data[idx].color = color0[idx]
+            c=color_layer.data[idx].color
+            #print(f"{idx}: {c[0]},{c[1]},{c[2]},{c[3]}")
+
+    if any_sps_has_color1:
+        mesh.vertex_colors.new(name="color1")
+        color_layer = mesh.vertex_colors["color1"]
+        for idx in range(0, len(color1)):
+            color_layer.data[idx].color = color1[idx] 
+
+
     mesh.update() 
     mesh.validate()
 

@@ -76,6 +76,8 @@ def save(context,
                 return False
             else:
                 current_obj = ob
+                if hasattr(current_obj.data, "transform"):
+                    current_obj.data.transform(ob_mat)
                 
     me = current_obj.to_mesh() 
     me.transform(global_matrix @ ob_mat)
@@ -130,6 +132,12 @@ def save(context,
         thisSPS.flags = vertex_buffer_format.setPosition(thisSPS.flags, True)
         thisSPS.flags = vertex_buffer_format.setNormal(thisSPS.flags, True)
         thisSPS.flags = vertex_buffer_format.setNumberOfTextureCoordinateSets(thisSPS.flags, uvSets)
+
+        doColor0 = "Color0" in material and (material["Color0"] == 1)
+        thisSPS.flags = vertex_buffer_format.setColor0(thisSPS.flags, doColor0)
+        doColor1 = "Color1" in material and (material["Color1"] == 1)
+        thisSPS.flags = vertex_buffer_format.setColor1(thisSPS.flags, doColor1)
+
         for i in range(0, uvSets):
             thisSPS.flags = vertex_buffer_format.setTextureCoordinateSetDimension(thisSPS.flags, i, 2)
 
@@ -156,6 +164,12 @@ def save(context,
                     swg_v = swg_types.SWGVertex()
                     swg_v.pos = vector3D.Vector3D(-v.co[0], v.co[1], v.co[2])
                     swg_v.normal = vector3D.Vector3D(-normal[0], normal[1], normal[2])
+
+                    if doColor0:
+                        swg_v.color0 = me.vertex_colors["color0"].data[l_index].color                        
+
+                    if doColor1:
+                        swg_v.color1 = me.vertex_colors["color1"].data[l_index].color
 
                     for i in range(0, uvSets):
                         uv = me.uv_layers[i].data[l_index].uv
