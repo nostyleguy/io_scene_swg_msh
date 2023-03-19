@@ -76,8 +76,6 @@ def save(context,
                 return False
             else:
                 current_obj = ob
-                if hasattr(current_obj.data, "transform"):
-                    current_obj.data.transform(ob_mat)
                 
     me = current_obj.to_mesh() 
     me.transform(global_matrix @ ob_mat)
