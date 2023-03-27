@@ -20,9 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import base64, os, bpy, time, datetime
+import base64, os, bpy, time, datetime, math
 import bmesh
-from mathutils import Matrix, Vector, Color
+from mathutils import Matrix, Vector, Color, Quaternion, Euler
 
 from bpy_extras.io_utils import unpack_list
 from bpy_extras.wm_utils.progress_report import ProgressReport
@@ -45,7 +45,20 @@ def all_images():
     for mat in bpy.data.materials:
         if mat.use_nodes:
             return set(filter(None, images_in_tree(mat.node_tree)))
-            
+
+def rotate_object(obj, rot_mat):
+    # decompose world_matrix's components, and from them assemble 4x4 matrices
+    orig_loc, orig_rot, orig_scale = obj.matrix_world.decompose()
+    #
+    orig_loc_mat   = Matrix.Translation(orig_loc)
+    orig_rot_mat   = orig_rot.to_matrix().to_4x4()
+    orig_scale_mat = (Matrix.Scale(orig_scale[0],4,(1,0,0)) @ 
+                      Matrix.Scale(orig_scale[1],4,(0,1,0)) @ 
+                      Matrix.Scale(orig_scale[2],4,(0,0,1)))
+    #
+    # assemble the new matrix
+    obj.matrix_world = orig_loc_mat @ rot_mat @ orig_rot_mat @ orig_scale_mat
+     
 def load_new(context,
              filepath,
              *,     
@@ -205,6 +218,12 @@ def load_new(context,
 
     for hpnts in msh.hardpoints:
         hpntadded = bpy.data.objects.new(name=hpnts[12], object_data=None)
+        # hpntadded.matrix_world = [
+        #     [hpnts[0], hpnts[8], hpnts[4], 0.0],
+        #     [hpnts[1], hpnts[9], hpnts[5], 0.0],
+        #     [hpnts[2], hpnts[10], hpnts[6], 0.0],
+        #     [hpnts[3], hpnts[11], hpnts[7], 0.0],
+        # ]
         hpntadded.matrix_world = [
             [hpnts[0], hpnts[8], hpnts[4], 0.0],
             [hpnts[1], hpnts[9], hpnts[5], 0.0],
@@ -213,6 +232,10 @@ def load_new(context,
         ]
         hpntadded.empty_display_type = "ARROWS"
         hpntadded.empty_display_size = 0.1
+        hpntadded.location[1] *= -1
+        hpntadded.rotation_euler[2] +=  math.radians(180.0)
+
+
         hpntadded.parent = obj
         bpy.context.collection.objects.link(hpntadded)
 

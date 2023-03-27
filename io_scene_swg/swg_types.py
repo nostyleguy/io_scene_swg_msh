@@ -600,7 +600,7 @@ class SWGMesh(object):
                 rotZz = iff.read_float()
                 posZ = iff.read_float()
                 hpntName = iff.read_string()
-                self.hardpoints.append([rotXx, rotXy, rotXz, posX, rotYx, rotYy, rotYz, posY, rotZx, rotZy, rotZz, posZ, hpntName])
+                self.hardpoints.append([rotXx, rotXy, rotXz, -posX, rotYx, rotYy, rotYz, posY, rotZx, rotZy, rotZz, posZ, hpntName])
                 iff.exitChunk("HPNT")
             iff.exitForm("HPTS")
 

@@ -24,7 +24,7 @@ import os
 import bpy
 import base64
 import bmesh
-import time, datetime, array, functools
+import time, datetime, array, functools, math
 from . import vector3D
 from . import swg_types
 from . import vertex_buffer_format
@@ -215,10 +215,27 @@ def save(context,
     for ob in bpy.data.objects: 
         if ob.parent == current_obj: 
             if ob.type != 'MESH' and ob.type == 'EMPTY' and ob.empty_display_type == "ARROWS":
+                
+                ob.location[1] *= -1
+                ob.location[0] *= -1
+                ob.rotation_euler[2] -=  math.radians(180)
+                # if hasattr(ob.data, "transform"):
+                #     ob.data.transform(ob.matrix_basis)
+
+                bpy.context.view_layer.update()
+
                 newMsh.hardpoints.append([
                 ob.matrix_world[0][0], ob.matrix_world[0][1], ob.matrix_world[0][2], ob.matrix_world[0][3],
                 ob.matrix_world[2][0], ob.matrix_world[2][1], ob.matrix_world[2][2], ob.matrix_world[2][3],
                 ob.matrix_world[1][0], ob.matrix_world[1][1], ob.matrix_world[1][2], ob.matrix_world[1][3], ob.name])
+
+                ob.location[1] *= -1
+                ob.location[0] *= -1
+                ob.rotation_euler[2] +=  math.radians(180)
+                # if hasattr(ob.data, "transform"):
+                #     ob.data.transform(ob.matrix_basis)
+
+                bpy.context.view_layer.update()
 
     if "Collision" in current_obj:
         col_bytes = base64.b64decode(current_obj["Collision"])
