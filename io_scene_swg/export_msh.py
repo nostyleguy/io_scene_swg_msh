@@ -76,9 +76,13 @@ def save(context,
                 return False
             else:
                 current_obj = ob
+
+    orig_matrix = current_obj.matrix_world.copy()
+    current_obj.matrix_world @= global_matrix
+    current_obj.data.transform(ob.matrix_basis)
                 
     me = current_obj.to_mesh() 
-    me.transform(global_matrix @ ob_mat)
+    #me.transform(global_matrix @ ob_mat)
     mesh_triangulate(me)    
     me.calc_normals_split()
 
@@ -216,26 +220,24 @@ def save(context,
         if ob.parent == current_obj: 
             if ob.type != 'MESH' and ob.type == 'EMPTY' and ob.empty_display_type == "ARROWS":
                 
-                ob.location[1] *= -1
-                ob.location[0] *= -1
-                ob.rotation_euler[2] -=  math.radians(180)
+                # ob.location[1] *= -1
+                # ob.location[0] *= -1
+                # ob.rotation_euler[2] -=  math.radians(180)
                 # if hasattr(ob.data, "transform"):
                 #     ob.data.transform(ob.matrix_basis)
-
-                bpy.context.view_layer.update()
+                #bpy.context.view_layer.update()
 
                 newMsh.hardpoints.append([
-                ob.matrix_world[0][0], ob.matrix_world[0][1], ob.matrix_world[0][2], ob.matrix_world[0][3],
-                ob.matrix_world[2][0], ob.matrix_world[2][1], ob.matrix_world[2][2], ob.matrix_world[2][3],
-                ob.matrix_world[1][0], ob.matrix_world[1][1], ob.matrix_world[1][2], ob.matrix_world[1][3], ob.name])
+                ob.matrix_world[0][0], ob.matrix_world[0][2], ob.matrix_world[0][1], ob.matrix_world[0][3],
+                ob.matrix_world[2][0], ob.matrix_world[2][2], ob.matrix_world[2][1], ob.matrix_world[2][3],
+                ob.matrix_world[1][0], ob.matrix_world[1][2], ob.matrix_world[1][1], ob.matrix_world[1][3], ob.name])
 
-                ob.location[1] *= -1
-                ob.location[0] *= -1
-                ob.rotation_euler[2] +=  math.radians(180)
+                # ob.location[1] *= -1
+                # ob.location[0] *= -1
+                # ob.rotation_euler[2] +=  math.radians(180)
                 # if hasattr(ob.data, "transform"):
                 #     ob.data.transform(ob.matrix_basis)
-
-                bpy.context.view_layer.update()
+                #bpy.context.view_layer.update()
 
     if "Collision" in current_obj:
         col_bytes = base64.b64decode(current_obj["Collision"])
@@ -247,5 +249,9 @@ def save(context,
     newMsh.write(filepath)
     now = time.time()
     print(f"Successfully wrote: {filepath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
+
+    
+    current_obj.matrix_world = orig_matrix
+    current_obj.data.transform(ob.matrix_basis)
 
     return {'FINISHED'}
