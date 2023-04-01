@@ -196,7 +196,7 @@ def load_new(context,
         print(f"Done!")
 
 
-    #mesh.transform(global_matrix)
+    mesh.transform(global_matrix)
 
     if any_sps_has_color0:
         mesh.vertex_colors.new(name="color0")
@@ -225,30 +225,19 @@ def load_new(context,
         #     [hpnts[3], hpnts[11], hpnts[7], 0.0],
         # ]
         hpntadded.matrix_world = [
-            [hpnts[0], hpnts[4], hpnts[8], 0.0],
-            [hpnts[1], hpnts[5], hpnts[9], 0.0],
-            [hpnts[2], hpnts[6], hpnts[10], 0.0],
-            [hpnts[3], hpnts[7], hpnts[11], 0.0],
+            [hpnts[0], hpnts[8], hpnts[4], 0.0],
+            [hpnts[1], hpnts[9], hpnts[5], 0.0],
+            [hpnts[2], hpnts[10], hpnts[6], 0.0],
+            [hpnts[3], hpnts[11], hpnts[7], 0.0],
         ]
         hpntadded.empty_display_type = "ARROWS"
         hpntadded.empty_display_size = 0.1
-        # hpntadded.location[1] *= -1
-        # hpntadded.rotation_euler[2] +=  math.radians(180.0)
+        hpntadded.location[1] *= -1
+        hpntadded.rotation_euler[2] +=  math.radians(180.0)
 
 
         hpntadded.parent = obj
         bpy.context.collection.objects.link(hpntadded)
-
-    obj.matrix_world @= global_matrix
-    #bpy.context.view_layer.update()
-    #obj.select = True
-    # bpy.ops.object.select_all(action='DESELECT')
-    # bpy.context.view_layer.objects.active = obj
-    # bpy.context.view_layer.update()
-    # bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-    # bpy.context.view_layer.update()
-    # toplayer = context.blend_data.collections[0]
-    # bpy.ops.object.transform_apply({'selected_editable_objects': toplayer.all_objects},location=True, rotation=True, scale=True)
 
     obj["Collision"] = base64.b64encode(msh.collision).decode('ASCII')
     # collisionObj = bpy.data.objects.new(name="COLLISION", object_data=None)
