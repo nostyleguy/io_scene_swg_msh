@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 11),
+    "version": (2, 0, 12),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh and .mgn",
@@ -62,6 +62,7 @@ from bpy.props import (
         FloatProperty,
         StringProperty,
         EnumProperty,
+        CollectionProperty
         )
 from bpy_extras.io_utils import (
         ImportHelper,
@@ -136,24 +137,35 @@ class ImportMSH(bpy.types.Operator, ImportHelper):
             description="Attempt to remove verts that are probably duplicates (within 0.0001 units of each other)",
             default=False,
             )
+
+    files: CollectionProperty(
+            type=bpy.types.OperatorFileListElement,
+            options={'HIDDEN', 'SKIP_SAVE'},
+        )
             
     def execute(self, context):
-        #from . import import_msh        
-
+        #from . import import_msh
         keywords = self.as_keywords(ignore=("axis_forward",
                                             "axis_up",
                                             "filter_glob",
-                                            ))
+                                            "files",
+                                            "filepath"))
 
         global_matrix = axis_conversion(from_forward=self.axis_forward,
                                         from_up=self.axis_up,
                                         ).to_4x4()
         keywords["global_matrix"] = global_matrix
 
-        result = import_msh.load_new(context, **keywords)
-        if 'ERROR' in result:
-            self.report({'ERROR'}, 'Something went wrong importing MESH')
-            return {'CANCELLED'}
+              
+        for f in self.files:   
+            dirname = os.path.dirname(self.filepath)
+            filepath = os.path.join(dirname, f.name)
+            print(f'IMPORTING: {self.filepath} {filepath}')
+            result = import_msh.load_new(context, filepath, **keywords)
+
+        # if 'ERROR' in result:
+        #     self.report({'ERROR'}, 'Something went wrong importing MESH')
+        #     return {'CANCELLED'}
         
         return {'FINISHED'}
 
@@ -193,6 +205,7 @@ class ExportMSH(bpy.types.Operator, ExportHelper):
 
     bl_idname = "export_scene.msh"
     bl_label = 'Export Msh'
+    bl_description = "Export SWG Mesh. Note, the filename you give won't be used, but the directory will. The final .msh filename(s) will be whatever the name of the Blender object is"
     bl_options = {'PRESET'}
 
     filename_ext = ".msh"
@@ -212,6 +225,20 @@ class ExportMSH(bpy.types.Operator, ExportHelper):
             description="SWG seems to flip DDS vertical axis, but blender doesn't. Need to flip UVs on import and export to be able to use Blender UV mapping without being destructive",
             default=True,
             )
+
+    def invoke(self, context, _event):
+        import os
+        if not self.filepath:
+            blend_filepath = context.blend_data.filepath
+            if not blend_filepath:
+                blend_filepath = "THE BLENDER OBJECT NAME WILL BE USED AS THE FILENAME, EXPORTED INTO THIS DIRECTORY!"
+            else:
+                blend_filepath = os.path.splitext(blend_filepath)[0]
+
+            self.filepath = blend_filepath + self.filename_ext
+
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
 
     def execute(self, context):
         #from . import export_msh

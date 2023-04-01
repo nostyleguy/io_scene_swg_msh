@@ -74,7 +74,7 @@ def load_new(context,
      
     msh = swg_types.SWGMesh(filepath, s)
     if not msh.load():
-        return {'ERROR'}
+        return {'CANCELLED'}
     
         
     name=os.path.basename(filepath).rsplit( ".", 1 )[ 0 ]

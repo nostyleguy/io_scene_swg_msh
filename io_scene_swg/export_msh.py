@@ -45,27 +45,18 @@ def mesh_triangulate(me):
     bm.to_mesh(me)
     bm.free()
 
+
+
 def save(context,
          filepath,
          *,
          global_matrix=None,
          flip_uv_vertical=False
          ):
-         
-    s=context.preferences.addons[__package__].preferences.swg_root
-    #s="E:/SWG_Legends_Dev/clientside_git_repo/"
-    #print(f"Root: {str(s)}")
 
-    newMsh = swg_types.SWGMesh(filepath, s)
-    start = time.time()
-    print(f'Exporting msh: {filepath} Flip UV: {flip_uv_vertical}')
-
-    def veckey2d(n, v):
-        return round(n[0], 4), round(n[1], 4), round(n[2], 4), round(v[0], 4), round(v[1], 4) 
-    
     objects = context.selected_objects
 
-    if not (len(objects) == 1):
+    if len(objects) == 0:
         return {'CANCELLED'}
 
     current_obj = None
@@ -73,9 +64,28 @@ def save(context,
         obs = [(ob_main, ob_main.matrix_world)]
         for ob, ob_mat in obs:
             if ob.type != 'MESH':
-                return False
+                continue
             else:
-                current_obj = ob
+                dirname = os.path.dirname(filepath)
+                fullpath = os.path.join(dirname, ob.name+".msh")
+                result = export_one(fullpath, context, ob, ob_mat, global_matrix, flip_uv_vertical)
+                if not 'FINISHED' in result:
+                    return {'CANCELLED'}
+    return {'FINISHED'}
+
+def export_one(fullpath, context, current_obj, ob_mat, global_matrix, flip_uv_vertical):
+    s=context.preferences.addons[__package__].preferences.swg_root
+    #s="E:/SWG_Legends_Dev/clientside_git_repo/"
+    #print(f"Root: {str(s)}")
+
+    newMsh = swg_types.SWGMesh(fullpath, s)
+    start = time.time()
+    print(f'Exporting msh: {fullpath} Flip UV: {flip_uv_vertical}')
+
+    def veckey2d(n, v):
+        return round(n[0], 4), round(n[1], 4), round(n[2], 4), round(v[0], 4), round(v[1], 4) 
+    
+    
                 
     me = current_obj.to_mesh() 
     me.transform(global_matrix @ ob_mat)
@@ -215,6 +225,8 @@ def save(context,
     for ob in bpy.data.objects: 
         if ob.parent == current_obj: 
             if ob.type != 'MESH' and ob.type == 'EMPTY' and ob.empty_display_type == "ARROWS":
+
+                clean_name = ob.name.split('.')[0]
                 
                 ob.location[1] *= -1
                 ob.location[0] *= -1
@@ -227,7 +239,7 @@ def save(context,
                 newMsh.hardpoints.append([
                 ob.matrix_world[0][0], ob.matrix_world[0][1], ob.matrix_world[0][2], ob.matrix_world[0][3],
                 ob.matrix_world[2][0], ob.matrix_world[2][1], ob.matrix_world[2][2], ob.matrix_world[2][3],
-                ob.matrix_world[1][0], ob.matrix_world[1][1], ob.matrix_world[1][2], ob.matrix_world[1][3], ob.name])
+                ob.matrix_world[1][0], ob.matrix_world[1][1], ob.matrix_world[1][2], ob.matrix_world[1][3], clean_name])
 
                 ob.location[1] *= -1
                 ob.location[0] *= -1
@@ -244,8 +256,8 @@ def save(context,
         newMsh.floor = current_obj["Floor"]
 
     print(f"Assembling final IFF ... ")
-    newMsh.write(filepath)
+    newMsh.write(fullpath)
     now = time.time()
-    print(f"Successfully wrote: {filepath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
+    print(f"Successfully wrote: {fullpath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
 
     return {'FINISHED'}
