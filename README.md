@@ -69,5 +69,6 @@ MGN Workflow Notes:
 
 Limitations:
 * MGN Hardpoints and Texture Renderers are stored as binary data in a Custom Property on import, but there is no edit support for these. The existing data will be rewritten at export.  
+* If you export an MGN with Face Maps while in Blender's Edit Mode, the Face Map data is not properly retrieved so Occlusion Triangles are not properly set. This will usually result in ALL of your mesh's triangles belonging to the first defined Occlusion zone which can do funky things like a helmet hiding all the geometry on a species' body. Exporting in Object Mode seems to work more reliably.  
 
 
