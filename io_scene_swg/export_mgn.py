@@ -212,10 +212,10 @@ def export_mgn(context,
 
         for i, mesh_face_map in enumerate(mesh_face_maps):
             n=face_maps[mesh_face_map.value].index
-            #print(f"faces[{i}]: {n}")
+            print(f"faces[{i}]: {n}")
             mgn.occlusion_zones[n][1].append(i)
-        
-        #print(f"MGN Occlusion zones: {str(mgn.occlusion_zones)}")
+    else:
+        print(f"No Face maps on model!")
 
     print(f"Assembling final IFF for MGN: {str(mgn)} ")
     mgn.write()

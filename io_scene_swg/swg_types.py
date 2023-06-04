@@ -81,8 +81,7 @@ class LmgFile(object):
         iff.insertForm("0000")
 
         iff.insertChunk("INFO")
-        iff.insert_int32(len(self.mgns))
-        iff.insert_bool(False)
+        iff.insert_int16(len(self.mgns))
         iff.exitChunk("INFO")
         for mgn in self.mgns:          
             iff.insertChunk("NAME")        
