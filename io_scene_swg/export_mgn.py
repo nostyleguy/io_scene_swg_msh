@@ -85,7 +85,9 @@ def export_mgn(context,
         if key.startswith("SKTM_"):
             mgn.skeletons.append(current_obj[key])
         elif key.startswith("OZN_"):
-            mgn.occlusions.append([key.replace("OZN_",""), i, current_obj[key]])
+            name=key.replace("OZN_","")
+            mgn.occlusions.append([name, i, current_obj[key]])
+            print(f"Added occlusion {str(i)}: {name}")
             i += 1
         elif key == "OCC_LAYER":
             mgn.occlusion_layer = current_obj[key]
@@ -129,13 +131,15 @@ def export_mgn(context,
                 mgn.blends.append(blt)
             
     face_index_pairs = [(face, index) for index, face in enumerate(bm.polygons)]
+    blender_tri_index_to_my_tri_index={}
     faces_by_material = {}
     for f, f_index in face_index_pairs:
         if not f.material_index in faces_by_material:
             faces_by_material[f.material_index] = []   
-        faces_by_material[f.material_index].append(f)
+        faces_by_material[f.material_index].append((f,f.index))
 
     uv_layer = bm.uv_layers.active.data[:]
+    global_tri_index=0
     for material_index in faces_by_material:
         last_tri_index = None
         running_tri_index = 0
@@ -151,11 +155,13 @@ def export_mgn(context,
         psdt.dot3 = []
         
         for f in faces:
+            face = f[0]
+            f_index = f[1]
             t1=None
             t2=None
             t3=None
-            for uv_index, l_index in enumerate(f.loop_indices):
-                master_vert_id = f.vertices[uv_index]
+            for uv_index, l_index in enumerate(face.loop_indices):
+                master_vert_id = face.vertices[uv_index]
 
                 if not master_vert_id in reverse_position_lookup:
                     reverse_position_lookup[master_vert_id] =  pidx_id                    
@@ -180,6 +186,9 @@ def export_mgn(context,
                     psdt.prims[0].append(t3)
                     psdt.prims[0].append(t2)
                     psdt.prims[0].append(t1)
+                    blender_tri_index_to_my_tri_index[f_index]=global_tri_index
+                    #print(f"f_index {f_index} = {global_tri_index}")
+                    global_tri_index += 1
 
                 running_tri_index += 1
 
@@ -204,16 +213,21 @@ def export_mgn(context,
 
         face_maps = current_obj.face_maps
 
-        for face_map in face_maps:
+        face_map_names_by_index={}
+
+        for i, face_map in enumerate(face_maps):
+            face_map_names_by_index[i]=face_map.name
             mgn.occlusion_zones.append([face_map.name, []])
 
-        # bpy_prop_collection of MeshFaceMap
+        print(f"Occlusion Zones: {str(mgn.occlusion_zones)}")
         mesh_face_maps = current_obj.data.face_maps.active.data
 
         for i, mesh_face_map in enumerate(mesh_face_maps):
-            n=face_maps[mesh_face_map.value].index
-            print(f"faces[{i}]: {n}")
-            mgn.occlusion_zones[n][1].append(i)
+            n=face_maps[mesh_face_map.value].index     
+            zone_name=face_map_names_by_index[n]
+            converted_index=blender_tri_index_to_my_tri_index[i]       
+            mgn.occlusion_zones[n][1].append(converted_index)
+            #print(f"faces[{i}]: My Index: {converted_index} Name: {zone_name} Value {mesh_face_map.value} Blender Index: {n}")
     else:
         print(f"No Face maps on model!")
 

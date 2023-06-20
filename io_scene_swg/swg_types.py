@@ -1322,6 +1322,7 @@ class SWGMgn(object):
         return i
 
     def write(self):
+        tris_with_no_facemap=[]
         iff = nsg_iff.IFF(initial_size=10000)
         print(f"Name: {iff.getCurrentName()} Length: {iff.getCurrentLength()}")
         iff.insertForm("SKMG")
@@ -1433,19 +1434,24 @@ class SWGMgn(object):
             iff.insertChunk("FOZC")
             count=len(self.occlusions)
             iff.insert_int16(count)
-            for n in range(0, count):
-                iff.insert_int16(n)
+            # for n in range(0, count):
+            #     iff.insert_int16(n)
+            for occ in self.occlusions:
+                iff.insert_int16(occ[1])
+                print(f"Wrote FOZC {occ[0]} which is {occ[1]}")
             iff.exitChunk("FOZC")
 
         if self.occlusion_zones and len(self.occlusion_zones) > 0:
             iff.insertChunk("OZC ")
-            for occ in self.occlusion_zones:
+            for i, occ in enumerate(self.occlusion_zones):
+                print(f"OZC {i}: {occ[0]} has tris: {str(len(occ[1]))}")
                 zones=occ[0].split(':')                
                 iff.insert_int16(len(zones))
                 for zone_name in zones:
                     for zone in self.occlusions:
                         if zone[0] == zone_name:
                             iff.insert_int16(zone[1])
+                            print(f"Adding OZC {zone[1]} which is {zone_name}")
             iff.exitChunk("OZC ")
 
         if len(self.occlusions) > 0:
@@ -1514,7 +1520,8 @@ class SWGMgn(object):
                                     found=True
                                     break
                             if not found:
-                                print(f"WARNING: Tri: {global_tri_index // 3} Not in any Face Map (occlusion zone). Assuming 0!")
+                                #print(f"WARNING: Tri: {global_tri_index // 3} Not in any Face Map (occlusion zone). Assuming 0!")
+                                tris_with_no_facemap.append(global_tri_index)
                                 iff.insert_int16(0)
                         iff.insert_uint32(value)
                         global_tri_index += 1
@@ -1535,4 +1542,6 @@ class SWGMgn(object):
             iff.insertIffData(self.binary_trts[12:])
             iff.exitForm()
 
+        if self.occlusion_zones and len(tris_with_no_facemap) > 0:
+            print(f"WARNING: Tris without assigned occlusion zone: {str(len(tris_with_no_facemap))}")
         iff.write(self.filename)

@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 13),
+    "version": (2, 0, 14),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh and .mgn",
@@ -160,6 +160,8 @@ class ImportMSH(bpy.types.Operator, ImportHelper):
         for f in self.files:   
             dirname = os.path.dirname(self.filepath)
             filepath = os.path.join(dirname, f.name)
+            
+
             print(f'IMPORTING: {self.filepath} {filepath}')
             result = import_msh.load_new(context, filepath, **keywords)
 
