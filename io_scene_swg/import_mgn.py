@@ -109,8 +109,6 @@ def import_mgn( context,
     mesh.use_auto_smooth = True
     mesh.normals_split_custom_set(normals)
     mesh.transform(global_matrix)
-    mesh.validate()
-    mesh.update()   
     
     if mgn.occlusion_zones:
         for i, ozc in enumerate(mgn.occlusion_zones):
@@ -127,12 +125,17 @@ def import_mgn( context,
         if len(uvs) != len(tris_flat):
             print(f'*** WARNING *** UV Layer: {i} -- Unmatched lengths of UVs ({len(uvs)}) and Tri indecies ({len(tris_flat)}). Skipping!')
             continue
+
         uvlayer = mesh.uv_layers.new(name=f'UVMap-{str(i)}')
         mesh.uv_layers.active = uvlayer
+        
+        print(f"Adding uv layer with size: {str(len(uvlayer.data))} for mesh with {str(len(mesh.polygons))} tris")
         for ind, vert in enumerate(tris_flat):
-            uv = [uvs[ind][0], 1 - uvs[ind][1]]
-            uvlayer.data[ind].uv = uv
-
+            try:
+                uv = [uvs[ind][0], 1 - uvs[ind][1]]
+                uvlayer.data[ind].uv = uv
+            except Exception as e:
+                print(f"Exception importing UVs: " + str(e))
     vgs = {}
     for i, bone in enumerate(mgn.bone_names):
         vg = scene_object.vertex_groups.new(name=bone)
@@ -193,5 +196,10 @@ def import_mgn( context,
             hpntadded.empty_display_size = 0.1 #small display
             hpntadded.parent = scene_object
             bpy.context.collection.objects.link(hpntadded)
+
+    
+    mesh.validate()
+    mesh.update()   
+    print(f"After validate/update. Mesh from {str(len(tris))} tris now has polygons: {str(len(mesh.polygons))}")
 
     return {'FINISHED'}

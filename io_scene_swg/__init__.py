@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 14),
+    "version": (2, 0, 15),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh and .mgn",
@@ -88,18 +88,14 @@ class SWGPreferences(AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
-        #layout.label(text="This is a preferences view for our add-on")
         layout.prop(self, "swg_root")
-
-        #info = f"Name: {__name__} Path: {self.swg_root}"
-        #print(info)
-
 
 class OBJECT_OT_addon_prefs_swg(Operator):
     """Display SWG Preferences"""
     bl_idname = "object.addon_swg_prefs"
     bl_label = "SWG Preferences"
     bl_options = {'REGISTER', 'UNDO'}
+    
 
     def execute(self, context):
         preferences = context.preferences
@@ -111,8 +107,6 @@ class OBJECT_OT_addon_prefs_swg(Operator):
         print(info)
 
         return {'FINISHED'}
-
-
 
 @orientation_helper(axis_forward='-Z', axis_up='Y')
 class ImportMSH(bpy.types.Operator, ImportHelper):

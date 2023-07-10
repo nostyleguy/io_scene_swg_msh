@@ -999,7 +999,7 @@ class SWGMgn(object):
         iff.enterAnyForm()
         version = iff.getCurrentName()
 
-        if version not in ["0004",]:
+        if version not in ["0003", "0004",]:
             print(f'Unsupported MGN version: {version}')
             return False
         

@@ -227,7 +227,7 @@ def export_mgn(context,
             zone_name=face_map_names_by_index[n]
             converted_index=blender_tri_index_to_my_tri_index[i]       
             mgn.occlusion_zones[n][1].append(converted_index)
-            #print(f"faces[{i}]: My Index: {converted_index} Name: {zone_name} Value {mesh_face_map.value} Blender Index: {n}")
+            print(f"faces[{i}]: My Index: {converted_index} Name: {zone_name} Value {mesh_face_map.value} Blender Index: {n}")
     else:
         print(f"No Face maps on model!")
 
