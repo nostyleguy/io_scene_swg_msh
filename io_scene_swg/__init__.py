@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 15),
+    "version": (2, 0, 16),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh and .mgn",
@@ -36,6 +36,7 @@ bl_info = {
 if "bpy" in locals():
     import importlib
     importlib.reload(support)
+    importlib.reload(extents)
     importlib.reload(swg_types)
     importlib.reload(nsg_iff)
     importlib.reload(vertex_buffer_format)
@@ -44,8 +45,10 @@ if "bpy" in locals():
     importlib.reload(export_msh)
     importlib.reload(import_mgn)
     importlib.reload(export_mgn)
+    importlib.reload(import_lod)
 else:
     from . import support
+    from . import extents
     from . import swg_types
     from . import nsg_iff
     from . import vertex_buffer_format
@@ -55,6 +58,7 @@ else:
     from . import export_msh
     from . import import_mgn
     from . import export_mgn
+    from . import import_lod
 
 import bpy
 from bpy.props import (
@@ -393,9 +397,67 @@ class MGN_PT_export_option(bpy.types.Panel):
         operator = sfile.active_operator
         layout.prop(operator, 'do_tangents')
 
+@orientation_helper(axis_forward='-Z', axis_up='Y')
+class ImportLOD(bpy.types.Operator, ImportHelper):
+    """Load a SWG LOD File"""
+    bl_idname = "import_scene.lod"
+    bl_label = "Import Lod"
+    bl_options = {'PRESET', 'UNDO'}
+
+    filename_ext = ".lod"
+    filter_glob: StringProperty(
+                default="*.lod",
+                options={'HIDDEN'},
+        )
+
+    flip_uv_vertical: BoolProperty(
+            name="Flip UV Vertically",
+            description="SWG seems to interprte the DDS vertical axis opposite as Blender does. Need to flip UVs on import AND export to be able to use Blender UV mapping without being destructive.",
+            default=True,
+            )
+    remove_duplicate_verts: BoolProperty(
+            name="Remove Duplicate Verts",
+            description="Attempt to remove verts that are probably duplicates (within 0.0001 units of each other)",
+            default=False,
+            )
+
+    files: CollectionProperty(
+            type=bpy.types.OperatorFileListElement,
+            options={'HIDDEN', 'SKIP_SAVE'},
+        )
+            
+    def execute(self, context):
+        keywords = self.as_keywords(ignore=("axis_forward",
+                                            "axis_up",
+                                            "filter_glob",
+                                            "files",
+                                            "filepath"))
+
+        global_matrix = axis_conversion(from_forward=self.axis_forward,
+                                        from_up=self.axis_up,
+                                        ).to_4x4()
+        keywords["global_matrix"] = global_matrix
+
+              
+        for f in self.files:   
+            dirname = os.path.dirname(self.filepath)
+            filepath = os.path.join(dirname, f.name) 
+
+            print(f'IMPORTING: {self.filepath} {filepath}')    
+            result = import_lod.load_new(context, filepath, **keywords)
+            if 'ERROR' in result:
+                self.report({'ERROR'}, 'Something went wrong importing LOD')
+                return {'CANCELLED'}
+        
+        return {'FINISHED'}
+
+    def draw(self, context):
+        pass
+
 def import_operators(self, context):
     self.layout.operator(ImportMGN.bl_idname, text="SWG Animated Mesh (.mgn)")
     self.layout.operator(ImportMSH.bl_idname, text="SWG Static Mesh (.msh)")
+    #self.layout.operator(ImportLOD.bl_idname, text="SWG Static Level of Detail (.lod)")
 
 def export_operators(self, context):
     self.layout.operator(ExportMGN.bl_idname, text="SWG Animated Mesh (.mgn)")
@@ -670,6 +732,97 @@ class SWG_Initialize_MGN_From_Existing(bpy.types.Operator):
     def draw(self, context):
         pass
 
+class SWG_Swap_Bone_Names_To_Source(bpy.types.Operator):
+    bl_idname = "object.swg_swap_bone_names_to_source"
+    bl_label = "Swap Bone Names to Source Engine"
+    bl_description = '''If this option is disabled, you need to have 1 object selected'''
+ 
+
+    # filename_ext = ".mgn"
+    # filter_glob : StringProperty(
+    #     default="*.mgn",
+    #     options={'HIDDEN'},
+    #     )
+    # filepath: StringProperty(default="test.mgn",subtype='FILE_PATH')
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object != None
+
+    # def execute(self, context): 
+    #     mgn_path =  self.properties.filepath
+    #     mgn = swg_types.SWGMgn(mgn_path,context.preferences.addons[__package__].preferences.swg_root)
+    #     mgn.load()
+    #     scene_object = context.active_object
+    #     print(f"mgn: {mgn}")
+
+    #     for bone in mgn.bone_names:
+    #         vg = scene_object.vertex_groups.new(name=bone)
+
+    #     scene_object.shape_key_add(name='Basis')
+    #     for i, blend in enumerate(mgn.blends):
+    #         sk = scene_object.shape_key_add(name=blend.name)
+        
+    #     for i, skel in enumerate(mgn.skeletons):
+    #         scene_object[f'SKTM_{i}'] = skel
+
+    #     for zone in mgn.occlusions:
+    #         scene_object["OZN_"+zone[0]] = zone[2]
+
+    #     scene_object[f'OCC_LAYER'] = mgn.occlusion_layer
+
+    #     if mgn.binary_hardpoints:
+    #         scene_object["HPTS"] = base64.b64encode(mgn.binary_hardpoints).decode('ASCII')
+
+    #     if mgn.binary_trts:
+    #         scene_object["TRTS"] = base64.b64encode(mgn.binary_trts).decode('ASCII')
+
+    #     if mgn.occlusion_zones:
+    #         for i, ozc in enumerate(mgn.occlusion_zones):
+    #             face_map = scene_object.face_maps.new(name=ozc[0])
+    #             face_map.add(ozc[1])
+
+    #     return {'FINISHED'}
+
+    def invoke(self, context, event):
+        swg_to_source_map={
+            "root":"ValveBiped.Bip01_Pelvis",
+            "spine1":"ValveBiped.Bip01_Spine",
+            "spine2":"ValveBiped.Bip01_Spine1",
+            "spine3":"ValveBiped.Bip01_Spine2",
+            "neck":"ValveBiped.Bip01_Spine4",
+            "head":"ValveBiped.Bip01_Head1",
+            "larm":"ValveBiped.Bip01_L_UpperArm",
+            "lforearm":"ValveBiped.Bip01_L_Forearm",
+            "lulna":"ValveBiped.Bip01_L_Ulna",
+            "lwrist":"ValveBiped.Bip01_L_Hand",
+            "lthigh":"ValveBiped.Bip01_L_Thigh",
+            "lshin":"ValveBiped.Bip01_L_Calf",
+            "lankle":"ValveBiped.Bip01_L_Foot",
+            "lclav":"ValveBiped.Bip01_L_Clavicle",
+            "ltoe":"ValveBiped.Bip01_L_Toe0",
+            "rarm":"ValveBiped.Bip01_R_UpperArm",
+            "rforearm":"ValveBiped.Bip01_R_Forearm",
+            "rulna":"ValveBiped.Bip01_R_Ulna",
+            "rwrist":"ValveBiped.Bip01_R_Hand",
+            "rthigh":"ValveBiped.Bip01_R_Thigh",
+            "rshin":"ValveBiped.Bip01_R_Calf",
+            "rankle":"ValveBiped.Bip01_R_Foot",
+            "rclav":"ValveBiped.Bip01_R_Clavicle",
+            "rtoe":"ValveBiped.Bip01_R_Toe0",
+        }
+        
+        scene_object = context.active_object
+        print(f"Swapping bones on: {scene_object.name}")
+        for vg in scene_object.vertex_groups:
+            if vg.name in swg_to_source_map:
+                vg.name = swg_to_source_map[vg.name]
+
+        return {'FINISHED'}
+ 
+    def draw(self, context):
+        pass
+
 class SWGMenu(bpy.types.Menu):
     bl_label = "SWG"
     bl_idname = "VIEW3D_MT_SWG_menu"
@@ -681,6 +834,7 @@ class SWGMenu(bpy.types.Menu):
         layout.operator(SWG_Add_Material_Operator.bl_idname, text=SWG_Add_Material_Operator.bl_label)
         layout.operator(SWG_Create_Apt_For_Msh.bl_idname, text=SWG_Create_Apt_For_Msh.bl_label)
         layout.operator(SWG_Create_Sat_For_Mgn.bl_idname, text=SWG_Create_Sat_For_Mgn.bl_label)
+        layout.operator(SWG_Swap_Bone_Names_To_Source.bl_idname, text= SWG_Swap_Bone_Names_To_Source.bl_label)
 
 def draw_item(self, context):
     layout = self.layout
@@ -695,7 +849,8 @@ classes = (
     MSH_PT_export_option,
     ImportMGN,
     MGN_PT_export_option,
-    ExportMGN,    
+    ExportMGN,  
+    ImportLOD,  
     MGN_PT_import_option,
     SWG_Load_Materials_Operator,
     SWG_Add_Material_Operator,
@@ -703,6 +858,7 @@ classes = (
     SWG_Create_Sat_For_Mgn,
     SWG_Load_Skeleton_For_MGN,
     SWG_Initialize_MGN_From_Existing,
+    SWG_Swap_Bone_Names_To_Source,
     SWGMenu,
 )
 

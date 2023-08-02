@@ -25,6 +25,7 @@ from . import support
 from . import nsg_iff
 from . import vector3D
 from . import vertex_buffer_format
+from . import extents
 from mathutils import Vector
 
 SWG_ROOT=None
@@ -136,10 +137,118 @@ class AptFile(object):
 
 
 class LodFile(object):
-    __slots__ = ('path', 'mesh')
-    def __init(self, path, mesh):
+
+    __slots__ = ('path', 'mesh','hardpoints','collision','floor', 'lods')
+    def __init__(self, path, mesh):
         self.path = path
         self.mesh = mesh
+        self.collision = None
+        self.hardpoints = []
+        self.lods = {}
+        self.floor = ""
+
+    def __str__(self):
+        return f'Path: {self.path}, Hpts: {str(len(self.hardpoints))} Lods: {str(self.lods)}'
+
+    def __repr__(self):
+        return self.__str__()
+
+    def load(self, path):
+        iff = nsg_iff.IFF(filename=path)
+        #print(f"Name: {iff.getCurrentName()} Length: {iff.getCurrentLength()}")
+        
+        top = iff.getCurrentName()
+        if top != "DTLA":
+            print(f"Not an LOD file. First form: {top} should be DTLA!")
+            return False
+        else:
+            iff.enterForm("DTLA")
+
+        version = iff.getCurrentName()
+        if version not in ["0007", "0008"]:
+            print(f'Unsupported DTLA version: {version}')
+            return False
+        else: 
+            iff.enterForm(version)
+
+        iff.enterForm("APPR")
+
+        version = iff.getCurrentName()
+        if version not in ["0003"]:
+            print(f'Unsupported APPR version: {version}')
+            return False
+        else: 
+            iff.enterForm(version)
+
+        # Extents (not doing anything with)
+        iff.enterForm("EXBX")
+        iff.exitForm("EXBX")
+
+        # Collision
+        # if iff.enterForm("NULL", True):
+        #     self.collision = bytearray(0)
+        #     iff.exitForm("NULL")
+        # else:
+        #     col_data_length = iff.getCurrentLength() + 8
+        #     col_form_name = iff.getCurrentName()
+        #     self.collision = iff.read_misc(col_data_length)
+        #     print(f"Collision form: {col_form_name} Len: {col_data_length}")
+        self.collision = extents.Extents.create(iff)
+
+        # Hardpoints
+        iff.enterForm("HPTS", True, False)
+        while not iff.atEndOfForm():
+            iff.enterChunk("HPNT", True)
+            rotXx = iff.read_float()
+            rotXy = iff.read_float()
+            rotXz = iff.read_float()
+            posX = iff.read_float()
+            rotYx = iff.read_float()
+            rotYy = iff.read_float()
+            rotYz = iff.read_float()
+            posY = iff.read_float()
+            rotZx = iff.read_float()
+            rotZy = iff.read_float()
+            rotZz = iff.read_float()
+            posZ = iff.read_float()
+            hpntName = iff.read_string()
+            self.hardpoints.append([rotXx, rotXy, rotXz, -posX, rotYx, rotYy, rotYz, posY, rotZx, rotZy, rotZz, posZ, hpntName])
+            iff.exitChunk("HPNT")
+        iff.exitForm("HPTS")
+
+        if iff.enterForm("FLOR", True):
+            if iff.enterChunk("DATA", True):
+                self.floor = iff.read_string()
+                iff.exitChunk("DATA")
+            iff.exitForm("FLOR")
+        
+        iff.exitForm() # APPR Version
+        iff.exitForm() # APPR
+
+        # PIVT
+        if iff.getCurrentName() == "PIVT":
+            iff.enterChunk("PIVT")
+            hasPivot = iff.read_bool8()
+            iff.exitChunk("PIVT")
+        
+        print(f"Current: {iff.getCurrentName()} size {iff.getCurrentLength()}")
+        iff.enterChunk("INFO")
+        while not iff.atEndOfForm():
+            id=iff.read_uint32()
+            near=iff.read_float()
+            far=iff.read_float()
+            self.lods[id]=[near,far]
+        iff.exitChunk("INFO")
+
+        iff.enterForm("DATA")
+        while not iff.atEndOfForm():
+            iff.enterChunk("CHLD")
+            ind = iff.read_uint32()
+            self.lods[ind].append(iff.read_string())
+            iff.exitChunk("CHLD")
+        iff.exitForm("DATA")
+
+        return True
 
     def write(self):
         iff = nsg_iff.IFF(initial_size=100000)      

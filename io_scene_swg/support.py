@@ -10,8 +10,10 @@ def find_file(relative_path, root):
     root=clean_path(root)
     relative_path=clean_path(relative_path)
     if os.path.exists(os.path.join(root, relative_path)):
+        #print(f"Found {relative_path}! Returning: {os.path.join(root,relative_path)}")
         return os.path.join(root,relative_path)
     else:
+        #print(f"{os.path.join(root,relative_path)} doesn't exist!")
         return None
 
 def load_shared_image(path, root):   

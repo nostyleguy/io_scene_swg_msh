@@ -58,11 +58,11 @@ def rotate_object(obj, rot_mat):
     #
     # assemble the new matrix
     obj.matrix_world = orig_loc_mat @ rot_mat @ orig_rot_mat @ orig_scale_mat
-     
-def load_new(context,
+
+def import_msh(context,
              filepath,
-             *,     
              global_matrix=None,
+             collection=None,
              flip_uv_vertical=False,
              remove_duplicate_verts=True,
              ):  
@@ -80,7 +80,11 @@ def load_new(context,
     name=os.path.basename(filepath).rsplit( ".", 1 )[ 0 ]
     mesh = bpy.data.meshes.new(name=f'{name}-mesh')
     obj = bpy.data.objects.new(name, mesh)
-    context.collection.objects.link(obj)
+
+    if collection != None:
+        collection.objects.link(obj)
+    else:
+        context.collection.objects.link(obj)
 
     faces_by_material = {}
     materials_by_face_index = []
@@ -237,7 +241,11 @@ def load_new(context,
 
 
         hpntadded.parent = obj
-        bpy.context.collection.objects.link(hpntadded)
+        
+        if collection != None:
+            collection.objects.link(hpntadded)
+        else:
+            context.collection.objects.link(hpntadded)
 
     obj["Collision"] = base64.b64encode(msh.collision).decode('ASCII')
     # collisionObj = bpy.data.objects.new(name="COLLISION", object_data=None)
@@ -249,6 +257,15 @@ def load_new(context,
 
     obj["Floor"] = msh.floor
 
-    print(f"Success!")
+    return obj
+     
+def load_new(context,
+             filepath,
+             *,     
+             global_matrix=None,
+             flip_uv_vertical=False,
+             remove_duplicate_verts=True,
+             ):  
 
+    obj = import_msh(context, filepath, global_matrix, None, flip_uv_vertical, remove_duplicate_verts)
     return {'FINISHED'}
