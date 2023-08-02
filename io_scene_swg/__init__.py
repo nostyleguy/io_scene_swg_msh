@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 16),
+    "version": (2, 0, 17),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh and .mgn",
@@ -801,6 +801,12 @@ class SWG_Swap_Bone_Names_To_Source(bpy.types.Operator):
             "lankle":"ValveBiped.Bip01_L_Foot",
             "lclav":"ValveBiped.Bip01_L_Clavicle",
             "ltoe":"ValveBiped.Bip01_L_Toe0",
+            "lthumb01":"ValveBiped.Bip01_L_Finger0",
+            "lthumb02":"ValveBiped.Bip01_L_Finger01",
+            "lindex01":"ValveBiped.Bip01_L_Finger1",
+            "lindex02":"ValveBiped.Bip01_L_Finger11",
+            "lring01":"ValveBiped.Bip01_L_Finger2",
+            "lring02":"ValveBiped.Bip01_L_Finger21",
             "rarm":"ValveBiped.Bip01_R_UpperArm",
             "rforearm":"ValveBiped.Bip01_R_Forearm",
             "rulna":"ValveBiped.Bip01_R_Ulna",
@@ -810,6 +816,12 @@ class SWG_Swap_Bone_Names_To_Source(bpy.types.Operator):
             "rankle":"ValveBiped.Bip01_R_Foot",
             "rclav":"ValveBiped.Bip01_R_Clavicle",
             "rtoe":"ValveBiped.Bip01_R_Toe0",
+            "rthumb01":"ValveBiped.Bip01_R_Finger0",
+            "rthumb02":"ValveBiped.Bip01_R_Finger01",
+            "rindex01":"ValveBiped.Bip01_R_Finger1",
+            "rindex02":"ValveBiped.Bip01_R_Finger11",
+            "rring01":"ValveBiped.Bip01_R_Finger2",
+            "rring02":"ValveBiped.Bip01_R_Finger21",
         }
         
         scene_object = context.active_object
