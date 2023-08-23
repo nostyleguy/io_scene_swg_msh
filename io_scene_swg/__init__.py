@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 17),
+    "version": (2, 0, 18),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh and .mgn",
@@ -362,6 +362,20 @@ class ExportMGN(bpy.types.Operator, ExportHelper):
 
     do_tangents : BoolProperty(name='DOT3', description="Include DOT3 tangent vectors.", default=True) 
     
+    def invoke(self, context, _event):
+        import os
+        if not self.filepath:
+            blend_filepath = context.blend_data.filepath
+            if not blend_filepath:
+                blend_filepath = "THE BLENDER OBJECT NAME WILL BE USED AS THE FILENAME, EXPORTED INTO THIS DIRECTORY!"
+            else:
+                blend_filepath = os.path.splitext(blend_filepath)[0]
+
+            self.filepath = blend_filepath + self.filename_ext
+
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
     def execute(self, context):
         from . import export_mgn
 

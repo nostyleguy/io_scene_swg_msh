@@ -1101,6 +1101,20 @@ class SWGMgn(object):
                 weight[1] = weight[1]/total 
                 if weight[1] != before:
                     print(f"Vert {i} changed weight for bone {weight[0]} from {before} to {weight[1]}")
+
+    def compute_fully_occluded_zone_combination(self):
+        result=set()
+        if self.occlusion_zones and len(self.occlusion_zones) > 0:
+            for occ in self.occlusion_zones:
+                if len(occ[1]) == 0:
+                    continue
+                else:
+                    for name in occ[0].split(":"):
+                        for ozn in self.occlusions:
+                            if ozn[0] == name:
+                                result.add(ozn[1])
+        return result
+
         
     def load(self):
         iff = nsg_iff.IFF(filename=self.filename)
@@ -1118,21 +1132,21 @@ class SWGMgn(object):
         #print(iff.getCurrentName())
         iff.enterChunk("INFO")
 
-        self.max_transforms_vertex = iff.read_uint32()
-        self.max_transforms_shader = iff.read_uint32()
+        self.max_transforms_vertex = iff.read_int32()
+        self.max_transforms_shader = iff.read_int32()
 
-        self.num_skeletons = iff.read_uint32()
-        self.num_vertex_groups = iff.read_uint32()
-        self.num_positions = iff.read_uint32()
-        self.num_transform_weight_data = iff.read_uint32()
-        self.num_normals = iff.read_uint32()
-        self.num_shaders = iff.read_uint32()
-        self.num_blends = iff.read_uint32()
+        self.num_skeletons = iff.read_int32()
+        self.num_vertex_groups = iff.read_int32()
+        self.num_positions = iff.read_int32()
+        self.num_transform_weight_data = iff.read_int32()
+        self.num_normals = iff.read_int32()
+        self.num_shaders = iff.read_int32()
+        self.num_blends = iff.read_int32()
         
-        self.num_occ_zones = iff.read_uint16()
-        self.num_occ_combo_zones = iff.read_uint16()
-        self.num_this_occludes = iff.read_uint16()
-        self.occlusion_layer = iff.read_uint16() 
+        self.num_occ_zones = iff.read_int16()
+        self.num_occ_combo_zones = iff.read_int16()
+        self.num_this_occludes = iff.read_int16()
+        self.occlusion_layer = iff.read_int16() 
 
         iff.exitChunk("INFO")
         
@@ -1271,18 +1285,18 @@ class SWGMgn(object):
             iff.enterChunk("OZN ")
             i = 0
             while not iff.atEndOfForm():
-                self.occlusions.append([iff.read_string(), i, 1])
+                self.occlusions.append([iff.read_string(), i, 0])
                 i += 1
             iff.exitChunk("OZN ")
 
+        # We don't really need to do anything with this.
+        # FOZC (Fully Occluded Zone Combination) is the combination of occlusion zones which would fully
+        # occlude this mesh, which helps the client quickly determine it doesn't need to render this mesh
+        # if a higher mesh occludes all those zones, rather than doing it per-triangle. From a Blender
+        # perspective, we need to compute this on export, but don't need it for import.
+
         if iff.getCurrentName() == "FOZC":
             iff.enterChunk("FOZC")
-            focz_count = iff.read_int16()
-            i = 0
-            while not iff.atEndOfForm():
-                n = iff.read_int16()
-                self.occlusions[i][1] = n
-                i += 1
             iff.exitChunk("FOZC")
 
         if iff.getCurrentName() == "OZC ":
@@ -1438,20 +1452,20 @@ class SWGMgn(object):
         iff.insertForm("0004")
 
         iff.insertChunk("INFO")
-        iff.insert_uint32(self.max_transforms_vertex)
-        iff.insert_uint32(self.max_transforms_shader)
-        iff.insert_uint32(len(self.skeletons))
-        iff.insert_uint32(len(self.bone_names))
-        iff.insert_uint32(len(self.positions))
-        iff.insert_uint32(len([vv for v in self.twdt for vv in v ]))
-        iff.insert_uint32(len(self.normals))
-        iff.insert_uint32(len(self.psdts))
-        iff.insert_uint32(len(self.blends))
+        iff.insert_int32(self.max_transforms_vertex)
+        iff.insert_int32(self.max_transforms_shader)
+        iff.insert_int32(len(self.skeletons))
+        iff.insert_int32(len(self.bone_names))
+        iff.insert_int32(len(self.positions))
+        iff.insert_int32(len([vv for v in self.twdt for vv in v ]))
+        iff.insert_int32(len(self.normals))
+        iff.insert_int32(len(self.psdts))
+        iff.insert_int32(len(self.blends))
         
-        iff.insert_uint16(len(self.occlusions))
-        iff.insert_uint16(len(self.occlusion_zones) if self.occlusion_zones else 0)
-        iff.insert_uint16(self.get_zones_this_occludes())
-        iff.insert_uint16(self.occlusion_layer) 
+        iff.insert_int16(len(self.occlusions))
+        iff.insert_int16(len(self.occlusion_zones) if self.occlusion_zones else 0)
+        iff.insert_int16(self.get_zones_this_occludes())
+        iff.insert_int16(self.occlusion_layer) 
         iff.exitChunk("INFO")
         
         iff.insertChunk("SKTM")
@@ -1539,15 +1553,13 @@ class SWGMgn(object):
                 iff.insertChunkString(occ[0])
             iff.exitChunk("OZN ")
 
-        if len(self.occlusions) > 0:
+        fully_occluded_zone_combination=self.compute_fully_occluded_zone_combination()
+        if len(fully_occluded_zone_combination) > 0:
             iff.insertChunk("FOZC")
-            count=len(self.occlusions)
+            count=len(fully_occluded_zone_combination)
             iff.insert_int16(count)
-            # for n in range(0, count):
-            #     iff.insert_int16(n)
-            for occ in self.occlusions:
-                iff.insert_int16(occ[1])
-                print(f"Wrote FOZC {occ[0]} which is {occ[1]}")
+            for zone in fully_occluded_zone_combination:
+                iff.insert_int16(zone)
             iff.exitChunk("FOZC")
 
         if self.occlusion_zones and len(self.occlusion_zones) > 0:
@@ -1563,10 +1575,10 @@ class SWGMgn(object):
                             print(f"Adding OZC {zone[1]} which is {zone_name}")
             iff.exitChunk("OZC ")
 
-        if len(self.occlusions) > 0:
+        occluded = [x for x in self.occlusions if x[2] == 1]            
+        if len(occluded) > 0:
             iff.insertChunk("ZTO ")
-            for occ in self.occlusions:
-                if occ[2] == 1:
+            for occ in occluded:
                     iff.insert_int16(occ[1])
             iff.exitChunk("ZTO ")
 

@@ -19,7 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import bpy, collections, array, base64, time, datetime, bmesh
+import bpy, collections, array, base64, time, datetime, bmesh, os
 from bpy.props import *
 from . import swg_types
 from . import data_types
@@ -78,7 +78,10 @@ def export_mgn(context,
             print(f"Did tangents for UV map: {name}")
             bm.calc_tangents(uvmap=name)
 
-    mgn = swg_types.SWGMgn(filepath, s)
+
+    dirname = os.path.dirname(filepath)
+    fullpath = os.path.join(dirname, ob.name+".mgn")
+    mgn = swg_types.SWGMgn(fullpath, s)
 
     i = 0
     for key in current_obj.keys():
@@ -233,6 +236,6 @@ def export_mgn(context,
 
     print(f"Assembling final IFF for MGN: {str(mgn)} ")
     mgn.write()
-    now = time.time()        
-    print(f"Successfully wrote: {filepath} Duration: " + str(datetime.timedelta(seconds=(now-starttime))))
+    now = time.time()
+    print(f"Successfully wrote: {fullpath} Duration: " + str(datetime.timedelta(seconds=(now-starttime))))
     return {'FINISHED'}
