@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 18),
+    "version": (2, 0, 19),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh and .mgn",
@@ -79,6 +79,7 @@ from bpy_extras.io_utils import (
 import bpy, os, functools, base64
 from bpy.types import Operator, AddonPreferences
 from bpy.props import StringProperty, IntProperty, BoolProperty
+from mathutils import Vector
 
 class SWGPreferences(AddonPreferences):
     # this must match the add-on name, use '__package__'
@@ -752,51 +753,9 @@ class SWG_Swap_Bone_Names_To_Source(bpy.types.Operator):
     bl_description = '''If this option is disabled, you need to have 1 object selected'''
  
 
-    # filename_ext = ".mgn"
-    # filter_glob : StringProperty(
-    #     default="*.mgn",
-    #     options={'HIDDEN'},
-    #     )
-    # filepath: StringProperty(default="test.mgn",subtype='FILE_PATH')
-
     @classmethod
     def poll(cls, context):
         return context.active_object != None
-
-    # def execute(self, context): 
-    #     mgn_path =  self.properties.filepath
-    #     mgn = swg_types.SWGMgn(mgn_path,context.preferences.addons[__package__].preferences.swg_root)
-    #     mgn.load()
-    #     scene_object = context.active_object
-    #     print(f"mgn: {mgn}")
-
-    #     for bone in mgn.bone_names:
-    #         vg = scene_object.vertex_groups.new(name=bone)
-
-    #     scene_object.shape_key_add(name='Basis')
-    #     for i, blend in enumerate(mgn.blends):
-    #         sk = scene_object.shape_key_add(name=blend.name)
-        
-    #     for i, skel in enumerate(mgn.skeletons):
-    #         scene_object[f'SKTM_{i}'] = skel
-
-    #     for zone in mgn.occlusions:
-    #         scene_object["OZN_"+zone[0]] = zone[2]
-
-    #     scene_object[f'OCC_LAYER'] = mgn.occlusion_layer
-
-    #     if mgn.binary_hardpoints:
-    #         scene_object["HPTS"] = base64.b64encode(mgn.binary_hardpoints).decode('ASCII')
-
-    #     if mgn.binary_trts:
-    #         scene_object["TRTS"] = base64.b64encode(mgn.binary_trts).decode('ASCII')
-
-    #     if mgn.occlusion_zones:
-    #         for i, ozc in enumerate(mgn.occlusion_zones):
-    #             face_map = scene_object.face_maps.new(name=ozc[0])
-    #             face_map.add(ozc[1])
-
-    #     return {'FINISHED'}
 
     def invoke(self, context, event):
         swg_to_source_map={
@@ -849,6 +808,83 @@ class SWG_Swap_Bone_Names_To_Source(bpy.types.Operator):
     def draw(self, context):
         pass
 
+class SWG_Generate_Blends_From_Other(bpy.types.Operator):
+    bl_idname = "object.swg_generate_blends_from_other"
+    bl_label = "Generate Blend Shapes from Other"
+    bl_description = '''If this option is disabled, you need to have 2 objects selected'''
+ 
+
+    @classmethod
+    def poll(cls, context):
+        return len(context.selected_objects) == 2
+
+    def invoke(self, context, event):
+        
+        destination = context.active_object
+        source = None
+        for object in context.selected_objects:
+            if object != destination:
+                source = object
+                break
+
+        print(f"Source: {source.name} Desination {destination.name}")
+
+        if source.type != 'MESH' or destination.type != 'MESH':
+            print ("Error. Both selected objects must be meshes!")
+            return {'CANCELLED'}
+
+        sm = source.to_mesh()
+        dm = destination.to_mesh() 
+        if sm == None or dm == None:
+            print (f"Error. Couldn't get Mesh from one or the other!")
+            return {'CANCELLED'}
+
+        keys = sm.shape_keys
+        print(f"Generating Shap Keys on {dm.name} from : {sm.name} number of keys: {str(len(sm.shape_keys.key_blocks))}")
+
+        sverts = sm.vertices
+        dverts = dm.vertices
+
+        closest_vert_map={}
+
+        for dv in dverts:
+            dist = float('inf')
+            closest_vert=None
+            for sv in sverts:
+                d = (Vector(dv.co) - Vector(sv.co)).magnitude
+                if d < dist:
+                    dist = d
+                    closest_vert = sv
+            closest_vert_map[dv.index] = closest_vert.index
+
+        #print(f"Closetst Vert Map:  {str(closest_vert_map)}")
+
+        basis = keys.key_blocks[0].data
+        for key in keys.key_blocks:
+            sk = destination.shape_key_add(name=key.name)
+
+            # deltas=key.data
+            # for i, delta in enumerate(deltas):
+            #     dv = sverts[i].co - delta.co
+            #     print(f"{sm.name} Shape {key.name}: Vert {i} has position {sverts[i].co} delta: {delta.co} diff: {dv}")
+
+            if(key.name == "Basis"):
+                print(f"Skipping Basis...")
+                continue
+
+            # for each vert in Destination Mesh, add a delta to the Shape key based on its corresponding vert's delta in the same key of the other mesh...
+            for vert in dverts:
+                corresponding_index = closest_vert_map[vert.index]
+                delta = key.data[corresponding_index].co - basis[corresponding_index].co
+                #print(f"Key: {sk.name} Vert: {vert.index} Source Vert was: {corresponding_index} with Original Pos: {sverts[corresponding_index].co} Basis: {basis[corresponding_index].co} ShapeKeyPos: {key.data[corresponding_index].co} Delta: {delta} Final: {vert.co+delta}")
+                sk.data[vert.index].co = vert.co + delta
+            print(f"Completed Generating: {sk.name}")
+
+        return {'FINISHED'}
+ 
+    def draw(self, context):
+        pass
+
 class SWGMenu(bpy.types.Menu):
     bl_label = "SWG"
     bl_idname = "VIEW3D_MT_SWG_menu"
@@ -861,6 +897,7 @@ class SWGMenu(bpy.types.Menu):
         layout.operator(SWG_Create_Apt_For_Msh.bl_idname, text=SWG_Create_Apt_For_Msh.bl_label)
         layout.operator(SWG_Create_Sat_For_Mgn.bl_idname, text=SWG_Create_Sat_For_Mgn.bl_label)
         layout.operator(SWG_Swap_Bone_Names_To_Source.bl_idname, text= SWG_Swap_Bone_Names_To_Source.bl_label)
+        layout.operator(SWG_Generate_Blends_From_Other.bl_idname, text=SWG_Generate_Blends_From_Other.bl_label)
 
 def draw_item(self, context):
     layout = self.layout
@@ -885,6 +922,7 @@ classes = (
     SWG_Load_Skeleton_For_MGN,
     SWG_Initialize_MGN_From_Existing,
     SWG_Swap_Bone_Names_To_Source,
+    SWG_Generate_Blends_From_Other,
     SWGMenu,
 )
 

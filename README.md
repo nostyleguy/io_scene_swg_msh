@@ -12,6 +12,7 @@ Should work with Blender 2.9+ and 3+
   * "Add SWG Shader as Material": Similar to the above, but opens a file browser to select a SWG shader. The Shader is converted to a Material and added in a new Material Slot on the mesh. 
   * "Create a SWG .apt for this .msh": Creates a very simple .apt file at the browsed path representing the APT->MSH file chain. The reference inside the APT will always be "mesh/\<currently selected object name\>.msh" so change your object name accordingly. No support for APT->LOD->MSH or any other file chain yet.
   * "Create a SWG .sat and .lmg for this .mgn": Creates .sat and .lmg files at the browsed path representing the SAT->LMG->MGN file chain. The reference inside the LMG will always be "mesh/\<currently selected object name\>.mgn" so change your object name accordingly.
+  * "Generate Blend Shapes From Other": Attempts to use the shape key deltas in one mesh to create shape keys in another. Use Ctrl+click to select 2 meshes. The first is the source and the second is the destination. For every shape key in source, this will create a same-named shape key in destination. In addition, it will actually try to update the vertex deltas in destination's shap keys. It does this by finding the closest vertex in source, and applying the same delta it had in this shape key. This works okay, but not amazing.
 
 ### MSH Import/Export:
 * Import and Export SWG .msh file (versions 0004 and 0005)
