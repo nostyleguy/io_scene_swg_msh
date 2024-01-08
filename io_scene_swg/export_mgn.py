@@ -25,6 +25,10 @@ from . import swg_types
 from . import data_types
 
 oznfulllist = ['face','neck','skull','sideburn_l','sideburn_r','chest','torso_f','torso_b','waist_f','waist_b','r_thigh','r_shin','r_foot','l_thigh','l_shin','l_foot','r_arm','r_forearm','r_hand','l_arm','l_forearm','l_hand']
+
+
+def roundedVec3(n):
+    return round(n[0], 3), round(n[1], 3), round(n[2], 3)
         
 def mesh_triangulate(me):
     bm = bmesh.new()
@@ -107,8 +111,18 @@ def export_mgn(context,
     for vert in bm.vertices:
         mgn.positions.append([-vert.co[0],vert.co[2],-vert.co[1]])
 
+    reverse_normal_lookup={}
+    normal_index=0
+    all_normals=[]
     for normal in normals:
-        mgn.normals.append([-normal[0], normal[2], -normal[1]])
+        converted_normal=roundedVec3([-normal[0], normal[2], -normal[1]])
+        if not converted_normal in reverse_normal_lookup.keys():
+            reverse_normal_lookup[converted_normal] = normal_index
+            #print(f"{converted_normal} : {normal_index}")
+            normal_index += 1
+            mgn.normals.append(converted_normal)
+            #mgn.normals.append([-normal[0], normal[2], -normal[1]])
+        all_normals.append(normal)
 
     if do_tangents:
         mgn.dot3=[]
@@ -171,7 +185,10 @@ def export_mgn(context,
                     pidx_id += 1
 
                 psdt.pidx.append(master_vert_id)
-                psdt.nidx.append(l_index)
+                #psdt.nidx.append(l_index)
+                normal = all_normals[l_index]
+                converted_normal=roundedVec3([-normal[0], normal[2], -normal[1]])
+                psdt.nidx.append(reverse_normal_lookup[converted_normal])
                 psdt.uvs[0].append(uv_layer[l_index].uv)
 
                 if do_tangents:

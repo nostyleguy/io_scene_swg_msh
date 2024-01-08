@@ -1,8 +1,6 @@
 from . import nsg_iff
 from . import vector3D
-
-
-
+from . import swg_types
 
 class Extents():
     def __init__(self):
@@ -12,20 +10,21 @@ class Extents():
         tag = iff.getCurrentName()
 
         if tag == "NULL":
-            print(f"Adding NULL extent")
             iff.enterAnyForm()
             iff.exitForm()
             return None
         elif tag == "EXSP":
-            print(f"Adding EXSP extent")
             return SphereExtents.create(iff)
         elif tag == "EXBX":
-            print(f"Adding EXBX extent")
             return BoxExtents.create(iff)
         elif tag == "CMPT":
             return ComponentExtent.create(iff)
         elif tag == "CPST":
             return CompositeExtent.create(iff)
+        elif tag == "CMSH":
+            return MeshExtent.create(iff)
+        elif tag == "DTAL":
+            return DetailExtent.create(iff)
         else:
             print(f"Unhandled extent type: {tag}")
 
@@ -47,7 +46,7 @@ class BoxExtents(Extents):
         iff.enterChunk("BOX ")
         min = vector3D.Vector3D(iff.read_float(), iff.read_float(), iff.read_float())
         max = vector3D.Vector3D(iff.read_float(), iff.read_float(), iff.read_float())
-        print(f"Min: {min} Max: {max}")
+        #print(f"Min: {min} Max: {max}")
         iff.exitChunk("BOX ")
         iff.exitForm("0001")
         iff.exitForm("EXBX")
@@ -72,7 +71,7 @@ class SphereExtents(Extents):
         iff.enterChunk("SPHR")
         center = iff.read_vector3()
         radius = iff.read_float()
-        print(f"Center: {center} Radius: {radius}")
+        #print(f"Center: {center} Radius: {radius}")
         iff.exitChunk("SPHR")
         iff.exitForm("0001")
         iff.exitForm("EXSP")
@@ -205,6 +204,30 @@ class ComponentExtent(Extents):
         iff.exitForm("0000")
         iff.exitForm("CMPT")
 
+class DetailExtent(Extents):
+
+    def create(iff):
+        e = DetailExtent()
+        e.load(iff)
+        return e
+    
+    def __init__(self):
+        self.broad_extent = None
+        self.extents = None
+
+    def load(self, iff):
+        iff.enterForm("DTAL")
+        iff.enterForm("0000")
+        extents = CompositeExtent.create(iff).extents
+        print(f"DTAL extent with {len(extents)}")
+        if(len(extents) == 2):
+            self.broad_extent = extents[0]
+            self.extents = extents[1]
+        else:
+            print(f"Bad DetailExtent with child count: {len(extents)}")
+        iff.exitForm("0000")
+        iff.exitForm("DTAL")
+
 # public class DetailExtent : Extents
 # {
 #     public CompositeExtent extent;
@@ -242,6 +265,29 @@ class ComponentExtent(Extents):
 #         extent.AddToGameObject(go);
 #     }
 # }
+
+class MeshExtent(object):
+
+    def create(iff):
+        cmsh = MeshExtent()
+        cmsh.load(iff)
+        return cmsh
+    
+    def __init__(self):
+        self.verts=[]
+        self.triangles=[]
+
+    def load(self, iff):
+        iff.enterForm("CMSH")
+        iff.enterForm("0000")
+        idtl = swg_types.IndexedTriangleList()
+        idtl.load(iff)
+        self.verts = idtl.verts
+        self.triangles = idtl.indexes
+        iff.exitForm("0000")
+        iff.exitForm("CMSH")
+
+        print(f"Created CMSH with {len(self.verts)} verts and {len(self.triangles)} triangles!")
 
 # public class MeshExtent : Extents 
 # {

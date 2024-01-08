@@ -154,7 +154,10 @@ class IFF():
         return readData
 
     def read_bool8(self):
-        return self.read_misc(1) != 0
+        return self.read_uint8() != 0
+
+    def read_uint8(self):
+        return int.from_bytes(self.read_misc(1), byteorder='little', signed=False)
 
     def read_int32(self):
         return int.from_bytes(self.read_misc(4), byteorder='little', signed=True)
@@ -235,8 +238,9 @@ class IFF():
             self.data[offset+size:(offset+size+lengthToEnd)] = temp
         else:
             #memmove(data+offset, data+offset-size, lengthToEnd+size);
+            self.data=bytearray(self.data)
             temp = self.data[offset-size:offset+lengthToEnd]
-            self.data[offset:offset+lengthToEnd+size] = temp
+            self.data[offset:offset+lengthToEnd+size] = bytearray(temp)
 
         #make sure all the enclosing stack entries know about the changed size
         for i in range(0, len(self.stack)):
@@ -366,6 +370,9 @@ class IFF():
         self.insertFloat(vec[0])
         self.insertFloat(vec[1])
 
+    def insert_int8(self, i):
+        self.insertChunkData(int.to_bytes(i, 1, byteorder="little", signed=True))
+
     def insert_int16(self, i):
         self.insertChunkData(int.to_bytes(i, 2, byteorder="little", signed=True))
 
@@ -421,6 +428,43 @@ class IFF():
         self.data[offset:offset+newLength] = data
         #// advance past the data
         self.stack[self.stack_depth].used += newLength
+
+    
+    def deleteChunkData(self, dataLength):
+        if not self.inChunk:
+            print("Error. Tried to call deleteChunkData while not in chunk")
+            return
+        self.adjustDataAsNeeded(-dataLength)
+
+
+
+    def seekWithinChunk(self, offset):
+        self.stack[self.stack_depth].used += offset
+
+    def update_int32(self, delta):
+        value = self.read_int32()
+        self.seekWithinChunk(-4)
+        self.deleteChunkData(4)
+        self.insert_int32(value + delta)
+        return value + delta
+
+    def update_float(self, delta):
+        value = self.read_float()
+        self.seekWithinChunk(-4)
+        self.deleteChunkData(4)
+        self.insertFloat(value + delta)
+        return value + delta
+
+    def update_vector3(self, dx, dy, dz):
+        x = self.read_float()
+        y = self.read_float()
+        z = self.read_float()
+        self.seekWithinChunk(-12)
+        self.deleteChunkData(12)
+        self.insertFloat(x+dx)
+        self.insertFloat(y+dy)
+        self.insertFloat(z+dz)
+        return [x+dx, y+dy, z+dz]
 
     def write(self, file_path):
         #print(f'self.length: {self.length} len(data): {len(self.data)} stack[0].length: {self.stack[0].length} stack[0].used: {self.stack[0].used}')

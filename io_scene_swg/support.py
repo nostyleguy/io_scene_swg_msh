@@ -2,6 +2,10 @@
 import os, bpy
 from bpy_extras.image_utils import load_image
 from bpy_extras import node_shader_utils
+from mathutils import Vector
+
+from . import extents
+from . import swg_types
 
 def clean_path(path):
     return path.replace('\\', '/') if (os.sep == '/') else path.replace('/', '\\')
@@ -98,3 +102,81 @@ def configure_material_from_swg_shader(material, shader, root_dir):
         spec_image = load_shared_image(shader.spec, root_dir)
         if spec_image:
             ma_wrap.specular_texture.image = spec_image
+
+def add_sphere(collection, collision, global_matrix, broadphase):
+    print(f"Add sphere...")
+    sph = bpy.data.objects.new(name="Sphere", object_data=None)        
+    sph.empty_display_type = "SPHERE"
+    sph.location = global_matrix @ Vector([-collision.center[0], collision.center[1], collision.center[2]])
+    sph.empty_display_size = collision.radius
+    collection.objects.link(sph)    
+
+    if broadphase:
+        sph['broadphase'] = 1
+
+def add_box(collection, collision, global_matrix, broadphase):
+    print(f"Add box...")
+    box = bpy.data.objects.new(name="Box", object_data=None)        
+    box.empty_display_type = "CUBE"
+    location = collision.getCenter()
+    box.location = global_matrix @ Vector([-location[0], location[1], location[2]])
+    scale = collision.getSize()
+    box.scale = global_matrix @ Vector(scale)
+    box.color = [0,0,1,1]
+    collection.objects.link(box)
+
+    if broadphase:
+        box['broadphase'] = 1
+
+def add_mesh(collection, collision, global_matrix, broadphase):
+    print(f"Add msh...")
+    mesh = bpy.data.meshes.new(name='Cmesh-mesh')
+    obj = bpy.data.objects.new("CMesh", mesh)
+    collection.objects.link(obj)        
+    mesh.from_pydata([[-v[0], v[1], v[2]] for v in collision.verts], [], [[v[2],v[1],v[0]] for v in collision.triangles])
+    mesh.transform(global_matrix)
+    mesh.update()
+    mesh.validate()   
+
+    if broadphase:
+        obj['broadphase'] = 1
+
+def add_rtw_mesh(collection, idtl, global_matrix, name):
+    mesh = bpy.data.meshes.new(name=f'{name}-mesh')
+    obj = bpy.data.objects.new(name, mesh)
+    collection.objects.link(obj)        
+    mesh.from_pydata([[-v[0], v[1], v[2]] for v in idtl.verts], [], [[v[2],v[1],v[0]] for v in idtl.indexes])
+    mesh.transform(global_matrix)
+    mesh.update()
+    mesh.validate()
+
+def add_component(collection, collision, global_matrix, broadphase):
+    print(f"Add component...")
+    return add_collision_to_collection(collection, collision.extent, global_matrix, broadphase)
+
+
+def add_composite(collection, collision, global_matrix, broadphase):
+    print(f"Add composite with extents {len(collision.extents)} ...")
+    for e in collision.extents:
+        add_collision_to_collection(collection, e, global_matrix, broadphase)
+
+
+def add_detail(collection, collision, global_matrix, broadphase):
+    print(f"Add Detail with {type(collision.broad_extent)} and {type(collision.extents)}")
+    add_collision_to_collection(collection, collision.broad_extent, global_matrix, True)
+    add_collision_to_collection(collection, collision.extents, global_matrix, False)
+
+def add_collision_to_collection(collection, collision, global_matrix, broadphase = False):
+
+    if isinstance(collision, extents.SphereExtents):
+        add_sphere(collection, collision, global_matrix, broadphase)
+    elif isinstance(collision, extents.BoxExtents):
+        add_box(collection, collision, global_matrix, broadphase)
+    elif isinstance(collision, extents.MeshExtent):
+        add_mesh(collection, collision, global_matrix, broadphase)
+    elif isinstance(collision, extents.CompositeExtent):
+        add_composite(collection, collision, global_matrix, broadphase)
+    elif isinstance(collision, extents.ComponentExtent):
+        add_component(collection, collision, global_matrix, broadphase)
+    elif isinstance(collision, extents.DetailExtent):
+        add_detail(collection, collision, global_matrix, broadphase)

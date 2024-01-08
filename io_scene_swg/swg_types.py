@@ -122,30 +122,188 @@ class SatFile(object):
         iff.write(self.path)
 
 class AptFile(object):
-    __slots__ = ('path', 'filename')
-    def __init__(self, path, filename):
-        self.path = path
+    __slots__ = ('filename', 'reference')
+    def __init__(self, filename, reference = ""):
         self.filename = filename
+        self.reference = reference
 
     def write(self):
         iff = nsg_iff.IFF(initial_size=100000)      
         iff.insertForm("APT ")
         iff.insertForm("0000")
         iff.insertChunk("NAME")
-        iff.insertChunkString(self.filename)
-        iff.write(self.path)
+        iff.insertChunkString(self.reference)
+        iff.write(self.filename)
 
+    def load(self):
+        print(f"Loading apt from {self.filename}. Reference currently: {self.reference}")
+        iff = nsg_iff.IFF(filename=self.filename)
+        iff.enterForm("APT ")
+        iff.enterAnyForm()
+        iff.enterChunk("NAME")
+        self.reference = iff.read_string()
+
+    def get_reference_fullpath(self, root):         
+        global SWG_ROOT
+        print(f"Apt {self.filename} looking for reference: {self.reference}")
+        if self.reference != "":
+            return support.find_file(self.reference, root)
+        else:
+            return None
+
+    def offset_contents(self,dx,dy,dz,root):
+        iff = nsg_iff.IFF(filename=self.filename)
+        iff.enterForm("APT ")
+        iff.enterAnyForm()
+        iff.enterChunk("NAME")
+
+        self.reference = iff.read_string()
+
+        fullpath = self.get_reference_fullpath(root)
+
+        if fullpath == None:
+            print(f"Error. Couldn't load APT reference {self.reference}")
+            return
+
+        if fullpath.endswith(".lod"):
+            lod = LodFile(fullpath)
+            lod.offset_contents(dx,dy,dz,root)
+        elif fullpath.endswith(".msh"):
+            msh = SWGMesh(fullpath, root)
+            msh.offset_contents(dx,dy,dz)
+        else:
+            print(f"Unhandled APT reference type: {self.reference}")
+
+class Portal(object):
+    __slots__ = ('verts','tris')
+    def __init__(self, verts, tris):
+        self.verts = verts
+        self.tris = tris
+
+class Cell(object):
+    __slots__ = ('name', 'portal_ids', 'appearance_file', 'floor_file', 'collision')
+    def __init__(self, name, portal_ids, appearance_file, floor_file, collision):
+        self.name = name
+        self.portal_ids = portal_ids
+        self.appearance_file = appearance_file
+        self.floor_file = floor_file
+        self.collision = collision
+
+class PobFile(object):
+    __slots__ = ('filename', 'portals', 'cells')
+    def __init__(self, filename, root):
+        global SWG_ROOT
+        SWG_ROOT = root
+        self.filename = filename
+        self.portals = []
+        self.cells = []
+
+    def write(self):
+        iff = nsg_iff.IFF(initial_size=100000)      
+        iff.insertForm("PRTO")
+        iff.insertForm("0000")
+        iff.insertChunk("NAME")
+        iff.insertChunkString(self.reference)
+        iff.write(self.filename)
+
+    def load(self):
+        print(f"Loading pob from {self.filename}")
+        iff = nsg_iff.IFF(filename=self.filename)
+        iff.enterForm("PRTO")
+        version = iff.getCurrentName()
+        if version in ["0004"]:
+            iff.enterForm(version)
+            iff.enterChunk("DATA")
+            num_portals = iff.read_int32()
+            num_cells = iff.read_int32()
+            iff.exitChunk("DATA")
+
+            iff.enterForm("PRTS")
+            for i in range(0, num_portals):
+                iff.enterForm("IDTL")
+                iff.enterForm("0000")
+                verts=[]
+                tris=[]
+
+                iff.enterChunk("VERT")
+                while not iff.atEndOfForm():
+                    verts.append(vector3D.Vector3D(iff.read_float(), iff.read_float(), iff.read_float()))
+                iff.exitChunk("VERT")
+                
+                iff.enterChunk("INDX")
+                while not iff.atEndOfForm():
+                    tris.append(Triangle(iff.read_int32(),iff.read_int32(),iff.read_int32()))
+                iff.exitChunk("INDX")
+
+                iff.exitForm("0000")
+                iff.exitForm("IDTL")
+
+                self.portals.append(Portal(verts,tris))
+            print(f"Found Portals: {len(self.portals)}")
+            iff.exitForm("PRTS")
+
+            iff.enterForm("CELS")
+            for i in range(0, num_cells):
+                portal_ids=[]
+                iff.enterForm("CELL")
+                iff.enterForm("0005")
+                iff.enterChunk("DATA")
+                num_portals = iff.read_int32()
+                can_see_parent = iff.read_bool8()
+                name = iff.read_string()
+                appearance = iff.read_string()
+                floor=None
+                if iff.read_bool8():
+                    floor = iff.read_string()
+                iff.exitChunk("DATA")
+
+                print(f"CELL {i} collision form: {iff.getCurrentName()}")
+                collision = extents.Extents.create(iff)
+
+
+                for pi in range(0, num_portals):
+                    iff.enterForm("PRTL")
+                    version = iff.getCurrentName()
+                    if version in ['0005']:
+                        iff.enterChunk(version)
+                        disabled = iff.read_bool8()
+                        passable = iff.read_bool8()
+                        portal_id = iff.read_int32()
+                        clockwise = iff.read_bool8()
+                        leads_to_room = iff.read_int32()
+                        door_style = iff.read_string()
+                        has_door_hardpoint = iff.read_bool8()
+                        portal_ids.append(portal_id)
+                        print(f"[Cell {i} Portal {pi}] Disabled: {disabled} Passable: {passable} portal_id: {portal_id} clockwise: {clockwise}, leads_to_room: {leads_to_room} door_style: '{door_style}' has_door_hardpoint: {has_door_hardpoint}")
+                        iff.exitChunk(version)
+                    else:
+                        print(f"Cell {i}, unhandled CELL version {version}")
+                        return
+                    iff.exitForm("PRTL")
+
+
+                iff.exitForm("0005")
+                iff.exitForm("CELL") 
+                self.cells.append(Cell(name, portal_ids, appearance, floor, collision))
+            
+
+        else:
+            print(f"Unhandled PRTO version: {version}")
+            return     
 
 class LodFile(object):
 
-    __slots__ = ('path', 'mesh','hardpoints','collision','floor', 'lods')
-    def __init__(self, path, mesh):
+    __slots__ = ('path', 'mesh','hardpoints','collision','floor', 'lods', 'radar', 'testshape', 'writeshape')
+    def __init__(self, path):
         self.path = path
-        self.mesh = mesh
+        self.mesh = None
         self.collision = None
         self.hardpoints = []
         self.lods = {}
         self.floor = ""
+        self.radar = None
+        self.testshape = None
+        self.writeshape = None
 
     def __str__(self):
         return f'Path: {self.path}, Hpts: {str(len(self.hardpoints))} Lods: {str(self.lods)}'
@@ -248,6 +406,36 @@ class LodFile(object):
             iff.exitChunk("CHLD")
         iff.exitForm("DATA")
 
+        iff.enterForm("RADR")
+        iff.enterChunk("INFO")
+        test = (iff.read_int32() != 0)
+        iff.exitChunk("INFO")
+        if(test):
+            idtl = IndexedTriangleList()
+            idtl.load(iff)
+            self.radar = idtl
+        iff.exitForm("RADR")
+
+        iff.enterForm("TEST")
+        iff.enterChunk("INFO")
+        test = (iff.read_int32() != 0)
+        iff.exitChunk("INFO")
+        if(test):
+            idtl = IndexedTriangleList()
+            idtl.load(iff)
+            self.testshape = idtl
+        iff.exitForm("TEST")
+
+        iff.enterForm("WRIT")
+        iff.enterChunk("INFO")
+        test = (iff.read_int32() != 0)
+        iff.exitChunk("INFO")
+        if(test):
+            idtl = IndexedTriangleList()
+            idtl.load(iff)
+            self.writeshape = idtl
+        iff.exitForm("WRIT")
+
         return True
 
     def write(self):
@@ -294,6 +482,319 @@ class LodFile(object):
         iff.exitForm("WRIT")
         
         iff.write(self.path)
+
+    def offset_contents(self, dx, dy, dz, root):
+        iff = nsg_iff.IFF(filename=self.path)
+        #print(f"Name: {iff.getCurrentName()} Length: {iff.getCurrentLength()}")
+        
+        top = iff.getCurrentName()
+        if top != "DTLA":
+            print(f"Not an LOD file. First form: {top} should be DTLA!")
+            return False
+        else:
+            iff.enterForm("DTLA")
+
+        version = iff.getCurrentName()
+        if version not in ["0007", "0008"]:
+            print(f'Unsupported DTLA version: {version}')
+            return False
+        else: 
+            iff.enterForm(version)
+
+        iff.enterForm("APPR")
+
+        version = iff.getCurrentName()
+        if version not in ["0003"]:
+            print(f'Unsupported APPR version: {version}')
+            return False
+        else: 
+            iff.enterForm(version)
+
+        # Extents (not doing anything with)
+        iff.enterForm("EXBX")
+        iff.exitForm("EXBX")
+
+        self.collision = extents.Extents.create(iff)
+
+        # Hardpoints
+        iff.enterForm("HPTS", True, False)
+        while not iff.atEndOfForm():
+            iff.enterChunk("HPNT", True)
+            rotXx = iff.read_float()
+            rotXy = iff.read_float()
+            rotXz = iff.read_float()
+            posX = iff.read_float()
+            rotYx = iff.read_float()
+            rotYy = iff.read_float()
+            rotYz = iff.read_float()
+            posY = iff.read_float()
+            rotZx = iff.read_float()
+            rotZy = iff.read_float()
+            rotZz = iff.read_float()
+            posZ = iff.read_float()
+            hpntName = iff.read_string()
+            self.hardpoints.append([rotXx, rotXy, rotXz, -posX, rotYx, rotYy, rotYz, posY, rotZx, rotZy, rotZz, posZ, hpntName])
+            iff.exitChunk("HPNT")
+        iff.exitForm("HPTS")
+
+        if iff.enterForm("FLOR", True):
+            if iff.enterChunk("DATA", True):
+                self.floor = iff.read_string()
+                iff.exitChunk("DATA")
+            iff.exitForm("FLOR")
+        
+        iff.exitForm() # APPR Version
+        iff.exitForm() # APPR
+
+        # PIVT
+        if iff.getCurrentName() == "PIVT":
+            iff.enterChunk("PIVT")
+            hasPivot = iff.read_bool8()
+            iff.exitChunk("PIVT")
+        
+        print(f"Current: {iff.getCurrentName()} size {iff.getCurrentLength()}")
+        iff.enterChunk("INFO")
+        while not iff.atEndOfForm():
+            id=iff.read_uint32()
+            near=iff.read_float()
+            far=iff.read_float()
+            self.lods[id]=[near,far]
+        iff.exitChunk("INFO")
+
+        iff.enterForm("DATA")
+        while not iff.atEndOfForm():
+            iff.enterChunk("CHLD")
+            ind = iff.read_uint32()
+            child="appearance/"+iff.read_string()
+            childpath = support.find_file(child, root)
+            if childpath != None:                    
+                if child.endswith(".msh"):
+                    msh = SWGMesh(childpath, root)
+                    msh.offset_contents(dx, dy, dz)
+                else:
+                    print(f"Error. LOD Child type not handled: {child}")
+            else:
+                print(f"Couldn't resolve LOD child path: {child}")
+
+            iff.exitChunk("CHLD")
+        iff.exitForm("DATA")
+
+        return True
+
+class IndexedTriangleList(object):
+    __slots__ = ('verts', 'indexes')
+    def __init__(self):
+        self.verts = []
+        self.indexes = []
+
+    def load(self, iff):
+        iff.enterForm("IDTL")
+        version = iff.getCurrentName()
+        if version not in ["0000"]:
+            print(f"Unsupported IDTL version: {version}")
+            iff.exitForm("IDTL")
+            return False
+        else:
+            iff.enterForm(version)
+            
+            iff.enterChunk("VERT")
+            while not iff.atEndOfForm():
+                self.verts.append(iff.read_vector3())
+            iff.exitChunk("VERT")
+
+            iff.enterChunk("INDX")
+            while not iff.atEndOfForm():
+                self.indexes.append([iff.read_int32(),iff.read_int32(),iff.read_int32()])
+            iff.exitChunk("INDX")
+            iff.exitForm(version)
+            iff.exitForm("IDTL")
+            return True
+
+class FloorTri(object):
+    Uncrossable = 0
+    Crossable = 1
+    WallBase = 2
+    WallTop = 3
+    __slots__ = ('corner1','corner2','corner3','index','nindex1','nindex2','nindex3','normal','edgeType1','edgeType2','edgeType3','fallthrough','partTag','portalId1','portalId2','portalId3')
+    def __init__(self):
+        self.corner1 = 0
+        self.corner2 = 0
+        self.corner3 = 0
+        
+        self.index = 0
+        
+        self.nindex1 = -1
+        self.nindex2 = -1
+        self.nindex3 = -1
+        
+        self.normal = [0,0,0]
+        
+        self.edgeType1 = FloorTri.Uncrossable
+        self.edgeType2 = FloorTri.Uncrossable
+        self.edgeType3 = FloorTri.Uncrossable
+        
+        self.fallthrough = False
+        
+        self.partTag = 0
+        
+        self.portalId1 = -1
+        self.portalId2 = -1
+        self.portalId3 = -1
+
+    def read_0002(self, iff):
+        self.corner1 = iff.read_int32()
+        self.corner2 = iff.read_int32()
+        self.corner3 = iff.read_int32()
+
+        self.index = iff.read_int32()
+
+        self.nindex1 = iff.read_int32()
+        self.nindex2 = iff.read_int32()
+        self.nindex3 = iff.read_int32()
+
+        self.normal = iff.read_vector3()
+
+        self.edgeType1 = iff.read_uint8()
+        self.edgeType2 = iff.read_uint8()
+        self.edgeType3 = iff.read_uint8()
+
+        self.fallthrough = iff.read_bool8()
+
+        self.partTag = iff.read_int32()
+
+        self.portalId1 = iff.read_int32()
+        self.portalId2 = iff.read_int32()
+        self.portalId3 = iff.read_int32()
+
+    def write_0002(self, iff):
+        iff.insert_int32(self.corner1)
+        iff.insert_int32(self.corner2)
+        iff.insert_int32(self.corner3)
+
+        iff.insert_int32(self.index)
+
+        iff.insert_int32(self.nindex1)
+        iff.insert_int32(self.nindex2)
+        iff.insert_int32(self.nindex3)
+
+        iff.insertFloatVector3(self.normal)
+
+        iff.insert_int8(self.edgeType1)
+        iff.insert_int8(self.edgeType2)
+        iff.insert_int8(self.edgeType3)
+
+        iff.insert_bool(self.fallthrough)
+
+        iff.insert_int32(self.partTag)
+
+        iff.insert_int32(self.portalId1)
+        iff.insert_int32(self.portalId2)
+        iff.insert_int32(self.portalId3)
+
+class PathEdge(object):
+    __slots__ = ('tri','edge','crossable')
+    def __init__(self, tri, edge, crossable):
+        self.tri = tri
+        self.edge = edge
+        self.crossable = crossable
+    
+    def write(self, iff):
+        iff.insert_int32(self.tri)
+        iff.insert_int32(self.edge)
+        iff.insert_bool(self.crossable)
+
+class FloorFile(object):
+
+    __slots__ = ('path', 'verts', 'tris')
+    def __init__(self, path):
+        self.path = path
+        self.verts = []
+        self.tris = []
+
+    def __str__(self):
+        return f"Path: {self.path}"
+
+    def __repr__(self):
+        return self.__str__()
+
+    def load(self):
+        iff = nsg_iff.IFF(filename=self.path)
+        iff.enterForm("FLOR")        
+        version = iff.getCurrentName()
+        if version in ["0006"]:
+            iff.enterForm("0006")
+            
+            iff.enterChunk("VERT")
+            vertCount = iff.read_int32()
+            while not iff.atEndOfForm():
+                pos = iff.read_vector3()
+                self.verts.append(pos)
+            iff.exitChunk("VERT")
+
+            iff.enterChunk("TRIS")
+            triCount = iff.read_int32()
+            for i in range(0, triCount):
+                f = FloorTri()
+                f.read_0002(iff)
+                self.tris.append(f)
+
+            iff.exitChunk("TRIS")
+
+            print(f"Verts: {len(self.verts)} Tris: {len(self.tris)}")
+        else:
+            print(f"Unhandled FLR version: {version}")
+            return False
+
+        return True
+
+    def write(self):
+        iff = nsg_iff.IFF(initial_size=100000)
+        iff.insertForm("FLOR")
+        iff.insertForm("0006")
+
+        iff.insertChunk("VERT")
+        iff.insert_int32(len(self.verts))
+        for v in self.verts:
+            iff.insertFloatVector3(v)
+        iff.exitChunk("VERT")
+
+        iff.insertChunk("TRIS")
+        iff.insert_int32(len(self.tris))
+        for t in self.tris:
+            t.write_0002(iff)
+        iff.exitChunk("TRIS")
+
+        borderEdges = []
+        for index, tri in enumerate(self.tris):
+            if tri.nindex1 == -1:
+                borderEdges.append(PathEdge(index, 0, (tri.edgeType1 != FloorTri.Uncrossable)))
+            if tri.nindex2 == -1:
+                borderEdges.append(PathEdge(index, 1, (tri.edgeType2 != FloorTri.Uncrossable)))
+            if tri.nindex3 == -1:
+                borderEdges.append(PathEdge(index, 2, (tri.edgeType1 != FloorTri.Uncrossable)))
+        iff.insertChunk("BEDG")
+        iff.insert_int32(len(borderEdges))
+        for be in borderEdges:
+            be.write(iff)
+        iff.exitChunk("BEDG")
+           
+        iff.write(self.path)
+
+    def offset_contents(self, dx, dy, dz):
+        iff = nsg_iff.IFF(filename=self.path)        
+        iff.enterForm("FLOR")
+        version = iff.getCurrentName()
+        if version in ["0006"]:
+            iff.enterForm("0006")
+            iff.enterChunk("VERT")
+            iff.read_int32()
+            while not iff.atEndOfForm():
+                v = iff.update_vector3(dx,dy,dz)
+        else:
+            print(f"Unhandled FLR version: {version}")
+            return False
+        iff.write(self.path)
+        return True
 
 class MgnHardpoint(object):
     __slots__ = ('name', 'parent', 'orientation', 'position')
@@ -634,6 +1135,64 @@ class SWGMesh(object):
 
         return v
 
+    def update_vertex(self, flags, iff, dx, dy, dz):
+        v = SWGVertex()
+
+        num_uv_sets = vertex_buffer_format.getNumberOfTextureCoordinateSets(flags)
+        skip_dot3 = False
+        if(num_uv_sets > 0) and (vertex_buffer_format.getTextureCoordinateSetDimension(flags, num_uv_sets - 1) == 4):
+            skip_dot3 = True
+            num_uv_sets -= 1
+
+        v.texs = []
+
+        if vertex_buffer_format.hasPosition(flags):
+            #v.pos =  vector3D.Vector3D(iff.read_float(), iff.read_float(), iff.read_float())
+            x = iff.update_float(dx)
+            y = iff.update_float(dy)
+            z = iff.update_float(dz)
+            v.pos=vector3D.Vector3D(x,y,z)
+
+        if vertex_buffer_format.hasNormal(flags):
+            v.normal =  vector3D.Vector3D(iff.read_float(), iff.read_float(), iff.read_float())
+
+        if vertex_buffer_format.hasPointSize(flags):
+            point_size = iff.read_float() # unused
+
+        if vertex_buffer_format.hasColor0(flags):
+            # NSG Seems like this should be ARGB per SOE code, but that makes 
+            # the Anchorhead Cantina look gross. Used trial and error to determine
+            # order: BGRA
+            b = iff.read_color()
+            g = iff.read_color()
+            r = iff.read_color()
+            a = iff.read_color()
+            v.color0 = [r,g,b,a]
+
+        if vertex_buffer_format.hasColor1(flags):
+            # NSG Seems like this should be ARGB per SOE code, but that makes 
+            # the Anchorhead Cantina look gross. Used trial and error to determine
+            # order: BGRA
+            b = iff.read_color()
+            g = iff.read_color()
+            r = iff.read_color()
+            a = iff.read_color()
+            v.color1 = [r,g,b,a]
+
+        for i in range(0, num_uv_sets):
+            dim = vertex_buffer_format.getTextureCoordinateSetDimension(flags, i)
+            v.texs.append([]) 
+            for j in range(0, dim):
+                v.texs[i].append(iff.read_float())
+
+        if skip_dot3:
+            iff.read_float()
+            iff.read_float()
+            iff.read_float()
+            iff.read_float()
+
+        return v
+
     def load(self):
         iff = nsg_iff.IFF(filename=self.filename)
         #print(f"Name: {iff.getCurrentName()} Length: {iff.getCurrentLength()}")
@@ -755,7 +1314,7 @@ class SWGMesh(object):
 
                 iff.enterChunk("INFO")
                 bit_flag = iff.read_int32()
-                self.debug_flags(bit_flag, sps_no)
+                #self.debug_flags(bit_flag, sps_no)
                 num_verts = iff.read_uint32()
                 verts = [None] * num_verts
                 iff.exitChunk("INFO")
@@ -960,6 +1519,147 @@ class SWGMesh(object):
         iff.exitForm("SPS ")
 
         iff.write(filename)
+
+    def offset_contents(self,dx,dy,dz):
+        iff = nsg_iff.IFF(filename=self.filename)
+        #print(f"Name: {iff.getCurrentName()} Length: {iff.getCurrentLength()}")
+        iff.enterAnyForm()
+        version = iff.getCurrentName()
+
+        if version not in ["0005", "0004"]:
+            print(f'Unsupported MESH version: {version}')
+            return False
+
+        iff.enterForm(version)
+        #print(iff.getCurrentName())
+        iff.enterForm("APPR")
+
+        appr_version = iff.getCurrentName()
+
+        if appr_version == "0003":
+            iff.enterAnyForm()
+            iff.enterForm("EXBX")
+            iff.enterForm("0001")
+            iff.enterForm("EXSP")
+            iff.enterForm("0001")
+            iff.enterChunk("SPHR")
+            x = iff.read_float()
+            y = iff.read_float()
+            z = iff.read_float()
+            rad = iff.read_float()
+            #print(f"X: {x} Y: {y} Z: {z} Radius: {rad}")
+            iff.exitChunk("SPHR")
+            iff.exitForm("0001")
+            iff.exitForm("EXSP")
+
+            iff.enterChunk("BOX ")    
+            maxx = iff.read_float()
+            maxy = iff.read_float()
+            maxz = iff.read_float()
+            minx = iff.read_float()
+            miny = iff.read_float()
+            minz = iff.read_float()
+            #print(f"MaxX: {maxx} MaxY: {maxy} MaxZ: {maxz} MinX: {minx} MinY: {miny} MinZ: {minz}")
+            self.extents.append([maxx, maxy, maxz])
+            self.extents.append([minx, miny, minz])
+            iff.exitChunk("BOX ")
+
+            iff.exitForm("0001")
+            iff.exitForm("EXBX")
+
+            # Collision stuff
+            if iff.enterForm("NULL", True):
+                self.collision = bytearray(0)
+                iff.exitForm("NULL")
+            else:
+                col_data_length = iff.getCurrentLength() + 8
+                col_form_name = iff.getCurrentName()
+                self.collision = iff.read_misc(col_data_length)
+                print(f"Collision form: {col_form_name} Len: {col_data_length}")
+
+            #hardpoints
+            iff.enterForm("HPTS", True, False)
+            while not iff.atEndOfForm():
+                iff.enterChunk("HPNT", True)
+                rotXx = iff.read_float()
+                rotXy = iff.read_float()
+                rotXz = iff.read_float()
+                posX = iff.read_float()
+                rotYx = iff.read_float()
+                rotYy = iff.read_float()
+                rotYz = iff.read_float()
+                posY = iff.read_float()
+                rotZx = iff.read_float()
+                rotZy = iff.read_float()
+                rotZz = iff.read_float()
+                posZ = iff.read_float()
+                hpntName = iff.read_string()
+                self.hardpoints.append([rotXx, rotXy, rotXz, -posX, rotYx, rotYy, rotYz, posY, rotZx, rotZy, rotZz, posZ, hpntName])
+                iff.exitChunk("HPNT")
+            iff.exitForm("HPTS")
+
+            if iff.enterForm("FLOR", True):
+                if iff.enterChunk("DATA", True):
+                    self.floor = iff.read_string()
+                    iff.exitChunk("DATA")
+                iff.exitForm("FLOR")
+            
+            iff.exitForm()
+        else:
+            print(f"Warning: Unknown APPR version: {appr_version}")
+
+        iff.exitForm("APPR")
+
+        iff.enterForm("SPS ")
+        iff.enterForm("0001")
+        iff.enterChunk("CNT ")
+        iff.exitChunk("CNT ")
+
+        while(not iff.atEndOfForm()):
+            sps_no = iff.getCurrentName()
+            iff.enterAnyForm()
+
+            iff.enterChunk("NAME")
+            iff.exitChunk("NAME")
+            iff.enterChunk("INFO")
+            iff.exitChunk("INFO")
+
+            version=iff.getCurrentName()
+            if version in ["0000", "0001"]:
+                iff.enterForm(version)
+                iff.enterChunk("INFO")
+                iff.exitChunk("INFO")
+
+                iff.enterForm("VTXA")
+                iff.enterForm("0003")
+
+                iff.enterChunk("INFO")
+                bit_flag = iff.read_int32()
+                num_verts = iff.read_uint32()
+                verts = [None] * num_verts
+                iff.exitChunk("INFO")
+
+                iff.enterChunk("DATA")
+                for i in range(0, num_verts):
+                    verts[i] = self.update_vertex(bit_flag, iff, dx, dy, dz)
+
+                iff.exitChunk("DATA")
+                iff.exitForm("0003")
+                iff.exitForm("VTXA")
+
+                iff.enterChunk("INDX")
+                iff.exitChunk("INDX")
+                iff.exitForm(version)
+
+            else:
+                print(f"Warning: Unknown SPS {sps_no} Unhandled version: {version}")
+                
+            iff.exitForm()
+
+        iff.write(self.filename)
+        print(f"Finished updating {self.filename}")
+
+        return True
         
 class SWGBLendShape(object):
     def __init__(self):
