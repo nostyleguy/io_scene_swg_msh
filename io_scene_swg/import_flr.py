@@ -40,7 +40,6 @@ def import_flr( context,
                 collection=None,
                 ):  
     s=context.preferences.addons[__package__].preferences.swg_root
-    print(f"Importing floor {filepath}")
     flr = swg_types.FloorFile(filepath)
     flr.load()        
             
@@ -48,10 +47,9 @@ def import_flr( context,
     mesh = bpy.data.meshes.new(name=f'{name}-mesh')
     obj = bpy.data.objects.new(name, mesh) 
 
-    if collection != None:
-        collection.objects.link(obj)
-    else:
-        context.collection.objects.link(obj)
+    if collection == None:
+        collection = context.collection
+    collection.objects.link(obj)
 
     normals=[]
     verts = []
@@ -60,37 +58,35 @@ def import_flr( context,
     edge_types = {}    
 
     for ind, vert in enumerate(flr.verts):
-        verts.append(Vector([-vert[0], vert[1], vert[2]]))
+        verts.append(Vector(support.convert_vector3([vert[0], vert[1], vert[2]])))
         
         
     for tri in flr.tris:
-        #tris.append([tri.corner1, tri.corner2, tri.corner3])
         tris.append([tri.corner1, tri.corner3, tri.corner2])
 
         edges.append([tri.corner1, tri.corner2])  
-        edge_types[(tri.corner1, tri.corner2)] = tri.edgeType1 
+        edge_types[(tri.corner1, tri.corner2)] = tri.edgeType1
 
         edges.append([tri.corner2, tri.corner3])
-        edge_types[(tri.corner2, tri.corner3)] = tri.edgeType2 
+        edge_types[(tri.corner2, tri.corner3)] = tri.edgeType2
 
         edges.append([tri.corner3, tri.corner1])
-        edge_types[(tri.corner3, tri.corner1)] = tri.edgeType3 
+        edge_types[(tri.corner3, tri.corner1)] = tri.edgeType3
 
-    mesh.from_pydata(verts, edges, tris)   
-    mesh.transform(global_matrix)     
+    mesh.from_pydata(verts, edges, tris)
     mesh.update() 
     mesh.validate()
 
     face_map = obj.face_maps.new(name="fallthrough")
     face_map.add([x.index for x in flr.tris if x.fallthrough == True]) 
 
-    for edge in mesh.edges:    
+    
+    #print(f'Object edge count: {len(mesh.edges)}')
+    for edge in mesh.edges:
         edge_type = edge_types[tuple(edge.vertices)]
-        if edge_type == swg_types.FloorTri.Crossable:
-            edge.use_freestyle_mark = True
-        elif edge_type == swg_types.FloorTri.Uncrossable:
+        if edge_type == swg_types.FloorTri.Uncrossable:
             edge.use_seam = True
-        elif edge_type == swg_types.FloorTri.WallTop:
+        elif edge_type == swg_types.FloorTri.WallBase:
             edge.use_edge_sharp = True
 
     bm = bmesh.new()
@@ -99,9 +95,13 @@ def import_flr( context,
     for edge in bm.edges:
         key = tuple([x.index for x in edge.verts])
         edge_type = edge_types[key]         
-        if edge_type == swg_types.FloorTri.WallBase:
+        if edge_type == swg_types.FloorTri.WallTop:
             edge[crease_layer] = 1.0
     bm.to_mesh(mesh)
     bm.free()
+
+    print(f"Has PathGraph: {flr.pathGraph != None}")
+    if flr.pathGraph != None:
+        support.create_pathgraph(collection, flr.pathGraph, obj, True)
 
     return obj

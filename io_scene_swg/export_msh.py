@@ -29,6 +29,8 @@ from . import vector3D
 from . import swg_types
 from . import vertex_buffer_format
 from . import data_types
+from . import extents
+from . import support
 
 from mathutils import Matrix, Vector, Color
 from bpy_extras import io_utils, node_shader_utils
@@ -50,45 +52,37 @@ def mesh_triangulate(me):
 def save(context,
          filepath,
          *,
-         global_matrix=None,
          flip_uv_vertical=False
          ):
 
     objects = context.selected_objects
 
     if len(objects) == 0:
+        print(f"Nothing selected. Aborting!")
         return {'CANCELLED'}
 
-    current_obj = None
-    for ob_main in objects:
-        obs = [(ob_main, ob_main.matrix_world)]
-        for ob, ob_mat in obs:
-            if ob.type != 'MESH':
-                continue
-            else:
-                dirname = os.path.dirname(filepath)
-                fullpath = os.path.join(dirname, ob.name+".msh")
-                result = export_one(fullpath, context, ob, ob_mat, global_matrix, flip_uv_vertical)
-                if not 'FINISHED' in result:
-                    return {'CANCELLED'}
+    for ob in objects:        
+        if ob.type != 'MESH':
+            print(f"Skipping {ob.name} with type: {ob.type}")
+            continue
+        else:
+            dirname = os.path.dirname(filepath)
+            fullpath = os.path.join(dirname, ob.name+".msh")
+            extract_dir=context.preferences.addons[__package__].preferences.swg_root
+            result = export_one(fullpath, extract_dir, ob, flip_uv_vertical)
+            if not 'FINISHED' in result:
+                return {'CANCELLED'}
     return {'FINISHED'}
 
-def export_one(fullpath, context, current_obj, ob_mat, global_matrix, flip_uv_vertical):
-    s=context.preferences.addons[__package__].preferences.swg_root
-    #s="E:/SWG_Legends_Dev/clientside_git_repo/"
-    #print(f"Root: {str(s)}")
-
-    newMsh = swg_types.SWGMesh(fullpath, s)
+def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
+    newMsh = swg_types.SWGMesh(fullpath, extract_dir)
     start = time.time()
     print(f'Exporting msh: {fullpath} Flip UV: {flip_uv_vertical}')
 
     def veckey2d(n, v):
         return round(n[0], 4), round(n[1], 4), round(n[2], 4), round(v[0], 4), round(v[1], 4) 
-    
-    
                 
-    me = current_obj.to_mesh() 
-    me.transform(global_matrix @ ob_mat)
+    me = obj.to_mesh() 
     mesh_triangulate(me)    
     me.calc_normals_split()
 
@@ -106,16 +100,8 @@ def export_one(fullpath, context, current_obj, ob_mat, global_matrix, flip_uv_ve
     for name in uv_names:
         me.calc_tangents(uvmap=name)
 
-    extreme_g_x = None
-    extreme_g_y = None
-    extreme_g_z = None
-            
-    extreme_l_x = None
-    extreme_l_y = None
-    extreme_l_z = None
-
     #If negative scaling, we have to invert the normals...
-    if ob_mat.determinant() < 0.0:
+    if obj.matrix_world.determinant() < 0.0:
         me.flip_normals()
 
     faces_by_material = {}
@@ -124,11 +110,19 @@ def export_one(fullpath, context, current_obj, ob_mat, global_matrix, flip_uv_ve
             faces_by_material[polygon.material_index] = []   
         faces_by_material[polygon.material_index].append(polygon)
 
-
+    for index in faces_by_material:
+        print(f"Faces_by_material[{index}]: {len(faces_by_material[index])}")
+    
+    this_mat_index=0
     for mat_index, face_list in faces_by_material.items():
+        try:
+            material = obj.material_slots[mat_index].material
+        except :
+            print(f"Asked for material index: {mat_index} but we only have {len(obj.material_slots)}. Won't do anything with {len(faces_by_material[mat_index])} triangles I guess")
+            continue
 
-        material = current_obj.material_slots[mat_index].material            
-        thisSPS = swg_types.SPS(mat_index, f'shader/{material.name}.sht', 0, [], [])
+        thisSPS = swg_types.SPS(this_mat_index, f'shader/{material.name}.sht', 0, [], [])
+        this_mat_index += 1
 
         uvSets = 1
         if "UVSets" in material:
@@ -170,8 +164,8 @@ def export_one(fullpath, context, current_obj, ob_mat, global_matrix, flip_uv_ve
                     last_unique_vert_index += 1
 
                     swg_v = swg_types.SWGVertex()
-                    swg_v.pos = vector3D.Vector3D(-v.co[0], v.co[1], v.co[2])
-                    swg_v.normal = vector3D.Vector3D(-normal[0], normal[1], normal[2])
+                    swg_v.pos = Vector(support.convert_vector3(v.co))
+                    swg_v.normal = Vector(support.convert_vector3(normal))
 
                     if doColor0:
                         swg_v.color0 = me.vertex_colors["color0"].data[l_index].color                        
@@ -188,9 +182,9 @@ def export_one(fullpath, context, current_obj, ob_mat, global_matrix, flip_uv_ve
                         swg_v.texs.append(uv)
 
                     if doDOT3:
-                        loop = me.loops[l_index]
-                        tang = loop.tangent
-                        swg_v.texs.append([ -tang[0], tang[1], tang[2], loop.bitangent_sign])
+                        loop = me.loops[l_index]                        
+                        tang = support.convert_vector3(loop.tangent)
+                        swg_v.texs.append([ *tang, loop.bitangent_sign])
 
                     thisSPS.verts.append(swg_v)
 
@@ -201,63 +195,59 @@ def export_one(fullpath, context, current_obj, ob_mat, global_matrix, flip_uv_ve
                 elif p3 == None:
                     p3 = unique_verts[rounded]
                     thisSPS.tris.append(swg_types.Triangle(p3, p2, p1))
-                    p1 = p2 = p3 = None
-
-                if extreme_g_x == None or -v.co[0] > extreme_g_x:
-                    extreme_g_x = -v.co[0]
-                if extreme_l_x == None or -v.co[0] < extreme_l_x:
-                    extreme_l_x = -v.co[0]
-                if extreme_g_y == None or v.co[1] > extreme_g_y:
-                    extreme_g_y = v.co[1]
-                if extreme_l_y == None or v.co[1] < extreme_l_y:
-                    extreme_l_y = v.co[1]
-                if extreme_g_z == None or v.co[2] > extreme_g_z:
-                    extreme_g_z = v.co[2]
-                if extreme_l_z == None or v.co[2] < extreme_l_z:
-                    extreme_l_z = v.co[2]        
+                    p1 = p2 = p3 = None        
             
         print(f"SPS {str(thisSPS.no)}: Unique Verts: {str(len(unique_verts))} UV Channels: {str(vertex_buffer_format.getNumberOfTextureCoordinateSets(thisSPS.flags))} Has flags {str(thisSPS.flags)}") 
-        newMsh.spss.append(thisSPS)            
-    
-    newMsh.extents.append((extreme_g_x, extreme_g_y, extreme_g_z))
-    newMsh.extents.append((extreme_l_x, extreme_l_y, extreme_l_z))
+        newMsh.spss.append(thisSPS)     
+        this_mat_index += 1
+
+    newMsh.extents = get_extents(obj)
 
     for ob in bpy.data.objects: 
-        if ob.parent == current_obj: 
+        if ob.parent == obj: 
             if ob.type != 'MESH' and ob.type == 'EMPTY' and ob.empty_display_type == "ARROWS":
+                newMsh.hardpoints.append(support.hardpoint_from_obj(ob))
 
-                clean_name = ob.name.split('.')[0]
-                
-                ob.location[1] *= -1
-                ob.location[0] *= -1
-                ob.rotation_euler[2] -=  math.radians(180)
-                # if hasattr(ob.data, "transform"):
-                #     ob.data.transform(ob.matrix_basis)
-
-                bpy.context.view_layer.update()
-
-                newMsh.hardpoints.append([
-                ob.matrix_world[0][0], ob.matrix_world[0][1], ob.matrix_world[0][2], ob.matrix_world[0][3],
-                ob.matrix_world[2][0], ob.matrix_world[2][1], ob.matrix_world[2][2], ob.matrix_world[2][3],
-                ob.matrix_world[1][0], ob.matrix_world[1][1], ob.matrix_world[1][2], ob.matrix_world[1][3], clean_name])
-
-                ob.location[1] *= -1
-                ob.location[0] *= -1
-                ob.rotation_euler[2] +=  math.radians(180)
-                # if hasattr(ob.data, "transform"):
-                #     ob.data.transform(ob.matrix_basis)
-
-                bpy.context.view_layer.update()
-
-    if "Collision" in current_obj:
-        col_bytes = base64.b64decode(current_obj["Collision"])
-        newMsh.collision = col_bytes
-    if "Floor" in current_obj:
-        newMsh.floor = current_obj["Floor"]
-
-    print(f"Assembling final IFF ... ")
     newMsh.write(fullpath)
     now = time.time()
     print(f"Successfully wrote: {fullpath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
 
     return {'FINISHED'}
+
+def get_extents(obj):
+    me = obj.to_mesh()
+    extreme_g_x = None
+    extreme_g_y = None
+    extreme_g_z = None
+            
+    extreme_l_x = None
+    extreme_l_y = None
+    extreme_l_z = None
+
+    for v in me.vertices:
+        c = Vector(support.convert_vector3(v.co))
+        if extreme_g_x == None or c[0] > extreme_g_x:
+            extreme_g_x = c[0]
+        if extreme_l_x == None or c[0] < extreme_l_x:
+            extreme_l_x = c[0]
+        if extreme_g_y == None or c[1] > extreme_g_y:
+            extreme_g_y = c[1]
+        if extreme_l_y == None or c[1] < extreme_l_y:
+            extreme_l_y = c[1]
+        if extreme_g_z == None or c[2] > extreme_g_z:
+            extreme_g_z = c[2]
+        if extreme_l_z == None or c[2] < extreme_l_z:
+            extreme_l_z = c[2]
+
+    return extents.BoxExtents([extreme_l_x, extreme_l_y, extreme_l_z],[extreme_g_x, extreme_g_y, extreme_g_z])
+
+def avg_vert_position_in_blender(obj):
+    me = obj.to_mesh() 
+    if len(me.vertices) > 0:
+        sum = me.vertices[0].co
+        for v in me.vertices[1:]:
+            sum += v.co
+
+        return sum / len(me.vertices)
+    else:
+        return None

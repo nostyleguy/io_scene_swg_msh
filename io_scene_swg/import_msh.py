@@ -60,18 +60,16 @@ def rotate_object(obj, rot_mat):
     obj.matrix_world = orig_loc_mat @ rot_mat @ orig_rot_mat @ orig_scale_mat
 
 def import_msh(context,
-             filepath,
-             global_matrix=None,
-             collection=None,
-             flip_uv_vertical=False,
-             remove_duplicate_verts=True,
-             ):  
+               filepath,
+               parent=None,
+               flip_uv_vertical=False,
+               remove_duplicate_verts=True,
+               just_the_mesh = False,
+    ):  
 
     print(f'Importing msh: {filepath} Flip UV: {flip_uv_vertical}')
-    s=context.preferences.addons[__package__].preferences.swg_root
-    #s="E:/SWG_Legends_Dev/clientside_git_repo/"
-    #print(f"Root: {str(s)}")
-     
+
+    s=context.preferences.addons[__package__].preferences.swg_root     
     msh = swg_types.SWGMesh(filepath, s)
     if not msh.load():
         return {'CANCELLED'}
@@ -81,10 +79,10 @@ def import_msh(context,
     mesh = bpy.data.meshes.new(name=f'{name}-mesh')
     obj = bpy.data.objects.new(name, mesh)
 
-    if collection != None:
-        collection.objects.link(obj)
-    else:
-        context.collection.objects.link(obj)
+    if parent == None:
+        parent = bpy.context.scene.collection
+    
+    parent.objects.link(obj)
 
     faces_by_material = {}
     materials_by_face_index = []
@@ -129,7 +127,7 @@ def import_msh(context,
 
         uvs = []
         for ind, vert in enumerate(sps.verts):
-            verts.append((-vert.pos.x, vert.pos.y, vert.pos.z))
+            verts.append(support.convert_vector3(vert.pos))
             
             
         for tri in sps.tris:
@@ -140,9 +138,9 @@ def import_msh(context,
             p3n = sps.verts[tri.p3].normal
             p2n = sps.verts[tri.p2].normal
             p1n = sps.verts[tri.p1].normal           
-            normals.append([-p3n.x, p3n.y, p3n.z])
-            normals.append([-p2n.x, p2n.y, p2n.z])
-            normals.append([-p1n.x, p1n.y, p1n.z])
+            normals.append(support.convert_vector3([p3n.x, p3n.y, p3n.z]))
+            normals.append(support.convert_vector3([p2n.x, p2n.y, p2n.z]))
+            normals.append(support.convert_vector3([p1n.x, p1n.y, p1n.z]))
 
             for loop_index, vert_index in enumerate([tri.p3, tri.p2, tri.p1]):
                 vert = sps.verts[vert_index]
@@ -196,11 +194,7 @@ def import_msh(context,
         bm.to_mesh(mesh)        
         after = len(mesh.vertices)            
         print(f"SPS {index}: Removed: {before - after} verts")
-        bm.free() 
-        print(f"Done!")
-
-
-    mesh.transform(global_matrix)
+        bm.free()
 
     if any_sps_has_color0:
         mesh.vertex_colors.new(name="color0")
@@ -208,7 +202,6 @@ def import_msh(context,
         for idx in range(0, len(color0)):
             color_layer.data[idx].color = color0[idx]
             c=color_layer.data[idx].color
-            #print(f"{idx}: {c[0]},{c[1]},{c[2]},{c[3]}")
 
     if any_sps_has_color1:
         mesh.vertex_colors.new(name="color1")
@@ -216,46 +209,12 @@ def import_msh(context,
         for idx in range(0, len(color1)):
             color_layer.data[idx].color = color1[idx] 
 
-
     mesh.update() 
     mesh.validate()
 
-    for hpnts in msh.hardpoints:
-        hpntadded = bpy.data.objects.new(name=hpnts[12], object_data=None)
-        # hpntadded.matrix_world = [
-        #     [hpnts[0], hpnts[8], hpnts[4], 0.0],
-        #     [hpnts[1], hpnts[9], hpnts[5], 0.0],
-        #     [hpnts[2], hpnts[10], hpnts[6], 0.0],
-        #     [hpnts[3], hpnts[11], hpnts[7], 0.0],
-        # ]
-        hpntadded.matrix_world = [
-            [hpnts[0], hpnts[8], hpnts[4], 0.0],
-            [hpnts[1], hpnts[9], hpnts[5], 0.0],
-            [hpnts[2], hpnts[10], hpnts[6], 0.0],
-            [hpnts[3], hpnts[11], hpnts[7], 0.0],
-        ]
-        hpntadded.empty_display_type = "ARROWS"
-        hpntadded.empty_display_size = 0.1
-        hpntadded.location[1] *= -1
-        hpntadded.rotation_euler[2] +=  math.radians(180.0)
-
-
-        hpntadded.parent = obj
-        
-        if collection != None:
-            collection.objects.link(hpntadded)
-        else:
-            context.collection.objects.link(hpntadded)
-
-    obj["Collision"] = base64.b64encode(msh.collision).decode('ASCII')
-    # collisionObj = bpy.data.objects.new(name="COLLISION", object_data=None)
-    # collisionObj.empty_display_type = "SPHERE"
-    # collisionObj.scale=(3,1,2)
-    # collisionObj.empty_display_size = 1
-    # collisionObj.parent = obj
-    #bpy.context.collection.objects.link(collisionObj)
-
-    obj["Floor"] = msh.floor
+    if not just_the_mesh:
+        for data in msh.hardpoints:
+            support.create_hardpoint_obj(data[12], data[0:12], parent = obj)
 
     return obj
      
@@ -267,5 +226,5 @@ def load_new(context,
              remove_duplicate_verts=True,
              ):  
 
-    obj = import_msh(context, filepath, global_matrix, None, flip_uv_vertical, remove_duplicate_verts)
+    obj = import_msh(context, filepath, None, flip_uv_vertical, remove_duplicate_verts)
     return {'FINISHED'}

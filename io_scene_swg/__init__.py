@@ -23,11 +23,11 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (2, 0, 20),
+    "version": (3, 0, 0),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
-    "description": "Import-Export SWG .msh and .mgn",
-    "warning": "",
+    "description": "Import-Export SWG .msh, .mgn, .lod and .pob",
+    "warning": "NOT Compatible with Blender 4.x yet! Features that use Face Maps (MGN occlusion, floor fallthroughs) will fail!",
     "doc_url": "None",
     "support": 'COMMUNITY',
     "category": "Import-Export",
@@ -46,8 +46,11 @@ if "bpy" in locals():
     importlib.reload(import_mgn)
     importlib.reload(export_mgn)
     importlib.reload(import_lod)
+    importlib.reload(export_lod)
     importlib.reload(import_flr)
     importlib.reload(export_flr)
+    importlib.reload(import_pob)
+    importlib.reload(export_pob)
 else:
     from . import support
     from . import extents
@@ -60,9 +63,13 @@ else:
     from . import import_mgn
     from . import export_mgn
     from . import import_lod
+    from . import export_lod
     from . import import_flr
     from . import export_flr
+    from . import import_pob
+    from . import export_pob
 
+from glob import glob
 import bpy
 from bpy.props import (
         BoolProperty,
@@ -79,11 +86,15 @@ from bpy_extras.io_utils import (
         axis_conversion,
         )
 
-import bpy, os, functools, base64, bmesh
+import bpy, os, functools, base64, bmesh, math
 from bpy.types import Operator, AddonPreferences
 from bpy.props import StringProperty, IntProperty, BoolProperty
-from mathutils import Vector
-
+from mathutils import Vector, Matrix
+import bpy
+from bpy.types import (
+    Gizmo,
+    GizmoGroup,
+)
 def import_swg_file(context, file):
     obj=None
     SWG_ROOT=context.preferences.addons[__package__].preferences.swg_root
@@ -132,7 +143,6 @@ class OBJECT_OT_addon_prefs_swg(Operator):
 
         return {'FINISHED'}
 
-@orientation_helper(axis_forward='-Z', axis_up='Y')
 class ImportMSH(bpy.types.Operator, ImportHelper):
     """Load a SWG Msh File"""
     bl_idname = "import_scene.msh"
@@ -162,17 +172,9 @@ class ImportMSH(bpy.types.Operator, ImportHelper):
         )
             
     def execute(self, context):
-        #from . import import_msh
-        keywords = self.as_keywords(ignore=("axis_forward",
-                                            "axis_up",
-                                            "filter_glob",
+        keywords = self.as_keywords(ignore=("filter_glob",
                                             "files",
                                             "filepath"))
-
-        global_matrix = axis_conversion(from_forward=self.axis_forward,
-                                        from_up=self.axis_up,
-                                        ).to_4x4()
-        keywords["global_matrix"] = global_matrix
 
               
         for f in self.files:   
@@ -212,14 +214,9 @@ class MSH_PT_import_option(bpy.types.Panel):
 
         sfile = context.space_data
         operator = sfile.active_operator
-
-        layout.prop(operator, "axis_forward")
-        layout.prop(operator, "axis_up")
         layout.prop(operator, 'flip_uv_vertical')
         layout.prop(operator, 'remove_duplicate_verts')
 
-
-@orientation_helper(axis_forward='-Z', axis_up='Y')
 class ExportMSH(bpy.types.Operator, ExportHelper):
     """Save a SWG .msh File"""
 
@@ -233,13 +230,6 @@ class ExportMSH(bpy.types.Operator, ExportHelper):
             default="*.msh",
             options={'HIDDEN'},
             )
-
-    global_scale: FloatProperty(
-            name="Scale",
-            min=0.01, max=1000.0,
-            default=1.0,
-            )
-
     flip_uv_vertical: BoolProperty(
             name="Flip UV Vertically",
             description="SWG seems to flip DDS vertical axis, but blender doesn't. Need to flip UVs on import and export to be able to use Blender UV mapping without being destructive",
@@ -261,21 +251,9 @@ class ExportMSH(bpy.types.Operator, ExportHelper):
         return {'RUNNING_MODAL'}
 
     def execute(self, context):
-        #from . import export_msh
-        from mathutils import Matrix
-        keywords = self.as_keywords(ignore=("axis_forward",
-                                            "axis_up",
-                                            "global_scale",
-                                            "filter_glob",
+        keywords = self.as_keywords(ignore=("filter_glob",
                                             "check_existing"
                                             ))
-
-        global_matrix = (Matrix.Scale(self.global_scale, 4) @
-                         axis_conversion(to_forward=self.axis_forward,
-                                         to_up=self.axis_up,
-                                         ).to_4x4())
-
-        keywords["global_matrix"] = global_matrix
         return export_msh.save(context, **keywords)
 
     def draw(self, context):
@@ -292,7 +270,6 @@ class MSH_PT_export_option(bpy.types.Panel):
     def poll(cls, context):
         sfile = context.space_data
         operator = sfile.active_operator
-
         return operator.bl_idname == "EXPORT_SCENE_OT_msh"
 
     def draw(self, context):
@@ -302,10 +279,6 @@ class MSH_PT_export_option(bpy.types.Panel):
 
         sfile = context.space_data
         operator = sfile.active_operator
-
-        layout.prop(operator, 'global_scale')
-        layout.prop(operator, 'axis_forward')
-        layout.prop(operator, 'axis_up')
         layout.prop(operator, 'flip_uv_vertical')
 
 class MGN_PT_import_option(bpy.types.Panel):
@@ -318,7 +291,6 @@ class MGN_PT_import_option(bpy.types.Panel):
     def poll(cls, context):
         sfile = context.space_data
         operator = sfile.active_operator
-
         return operator.bl_idname == "IMPORT_SCENE_OT_mgn"
 
     def draw(self, context):
@@ -350,9 +322,10 @@ class ImportMGN(bpy.types.Operator, ImportHelper):
                                             "axis_up",
                                             "filter_glob",))
 
-        global_matrix = axis_conversion(from_forward=self.axis_forward,
-                                        from_up=self.axis_up,
-                                        ).to_4x4()
+        global_matrix = (Matrix.Scale(1, 4) @
+                         axis_conversion(to_forward=self.axis_forward,
+                                         to_up=self.axis_up,
+                                         ).to_4x4())
                                         
         keywords["global_matrix"] = global_matrix
 
@@ -431,7 +404,6 @@ class MGN_PT_export_option(bpy.types.Panel):
         operator = sfile.active_operator
         layout.prop(operator, 'do_tangents')
 
-@orientation_helper(axis_forward='-Z', axis_up='Y')
 class ImportLOD(bpy.types.Operator, ImportHelper):
     """Load a SWG LOD File"""
     bl_idname = "import_scene.lod"
@@ -461,29 +433,24 @@ class ImportLOD(bpy.types.Operator, ImportHelper):
         )
             
     def execute(self, context):
-        keywords = self.as_keywords(ignore=("axis_forward",
-                                            "axis_up",
-                                            "filter_glob",
+        keywords = self.as_keywords(ignore=("filter_glob",
                                             "files",
-                                            "filepath"))
-
-        global_matrix = axis_conversion(from_forward=self.axis_forward,
-                                        from_up=self.axis_up,
-                                        ).to_4x4()
-        keywords["global_matrix"] = global_matrix
-
-              
+                                            "filepath"))              
         for f in self.files:   
             dirname = os.path.dirname(self.filepath)
             filepath = os.path.join(dirname, f.name) 
-
-            print(f'IMPORTING: {self.filepath} {filepath}')    
             result = import_lod.load_new(context, filepath, parent = None, **keywords)
             if 'ERROR' in result:
                 self.report({'ERROR'}, 'Something went wrong importing LOD')
-                return {'CANCELLED'}
-        
+                return {'CANCELLED'}        
         return {'FINISHED'}
+
+    def invoke(self, context, _event):
+        
+        if context.preferences.addons[__package__].preferences.swg_root != "":            
+            self.filepath = context.preferences.addons[__package__].preferences.swg_root +"/appearance/lod/"
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
 
     def draw(self, context):
         pass
@@ -508,20 +475,247 @@ class LOD_PT_import_option(bpy.types.Panel):
 
         sfile = context.space_data
         operator = sfile.active_operator
-
-        layout.prop(operator, "axis_forward")
-        layout.prop(operator, "axis_up")
+        
         layout.prop(operator, 'flip_uv_vertical')
         layout.prop(operator, 'remove_duplicate_verts')
 
+class ExportLOD(bpy.types.Operator, ExportHelper):
+    """Save a SWG .lod File"""
+
+    bl_idname = "export_scene.lod"
+    bl_label = 'Export Lod'
+    bl_description = "Export SWG Mesh. Note, the filename you give won't be used, but the directory will. The final .lod filename(s) will be whatever the name of the Blender object is"
+    bl_options = {'PRESET'}
+
+    filename_ext = ".lod"
+    filter_glob: StringProperty(
+            default="*.lod",
+            options={'HIDDEN'},
+            )
+
+    flip_uv_vertical: BoolProperty(
+            name="Flip UV Vertically",
+            description="SWG seems to flip DDS vertical axis, but blender doesn't. Need to flip UVs on import and export to be able to use Blender UV mapping without being destructive",
+            default=True,
+            )
+
+    export_children: BoolProperty(
+            name="Export Children",
+            description="When checked, will export children (under 'LODs') to individual .msh files. Uncheck to save export time if you only modified collision/hardpoints/floor/etc.",
+            default=True,
+            )
+
+    def invoke(self, context, _event):
+        
+        if context.preferences.addons[__package__].preferences.swg_root != "":            
+            self.filepath = context.preferences.addons[__package__].preferences.swg_root +"/appearance/lod/"
+
+        self.filepath += "THE BLENDER COLLECTION NAME WILL BE USED AS THE FILENAME, EXPORTED INTO THIS DIRECTORY!"
+
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        keywords = self.as_keywords(ignore=("filter_glob",
+                                            "check_existing"
+                                            ))
+        return export_lod.save(context, **keywords)
+
+    def draw(self, context):
+        pass
+
+
+class LOD_PT_export_option(bpy.types.Panel):
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_label = "Option"
+    bl_parent_id = "FILE_PT_operator"
+
+    @classmethod
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        return operator.bl_idname == "EXPORT_SCENE_OT_lod"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+        
+        layout.prop(operator, 'flip_uv_vertical')
+        layout.prop(operator, 'export_children')
+
+class ImportPOB(bpy.types.Operator, ImportHelper):
+    """Load a SWG POB File"""
+    bl_idname = "import_scene.pob"
+    bl_label = "Import POB"
+    bl_options = {'PRESET', 'UNDO'}
+
+    filename_ext = ".pob"
+    filter_glob: StringProperty(
+                default="*.pob",
+                options={'HIDDEN'},
+        )
+
+    flip_uv_vertical: BoolProperty(
+            name="Flip UV Vertically",
+            description="SWG seems to interprte the DDS vertical axis opposite as Blender does. Need to flip UVs on import AND export to be able to use Blender UV mapping without being destructive.",
+            default=True,
+            )
+    remove_duplicate_verts: BoolProperty(
+            name="Remove Duplicate Verts",
+            description="Attempt to remove verts that are probably duplicates (within 0.0001 units of each other)",
+            default=False,
+            )
+
+    files: CollectionProperty(
+            type=bpy.types.OperatorFileListElement,
+            options={'HIDDEN', 'SKIP_SAVE'},
+        )
+            
+    def execute(self, context):
+        keywords = self.as_keywords(ignore=("filter_glob",
+                                            "files",
+                                            "filepath"))
+              
+        for f in self.files:   
+            dirname = os.path.dirname(self.filepath)
+            filepath = os.path.join(dirname, f.name) 
+
+            print(f'IMPORTING: {self.filepath} {filepath}')    
+            result = import_pob.load_new(context, filepath, **keywords)
+            if 'ERROR' in result:
+                self.report({'ERROR'}, 'Something went wrong importing LOD')
+                return {'CANCELLED'}
+        
+        return {'FINISHED'}
+
+    def draw(self, context):
+        pass
+
+class POB_PT_import_option(bpy.types.Panel):
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_label = "POB Import Options"
+    bl_parent_id = "FILE_PT_operator"
+
+    @classmethod
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        return operator.bl_idname == "IMPORT_SCENE_OT_pob"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+        layout.prop(operator, 'flip_uv_vertical')
+        layout.prop(operator, 'remove_duplicate_verts')
+
+class ExportPOB(bpy.types.Operator, ExportHelper):
+    """Save a SWG .pob File"""
+
+    bl_idname = "export_scene.pob"
+    bl_label = 'Export Pob'
+    bl_description = "Export SWG Pob. Note, the filename you give won't be used, but the directory will. The final .pob filename will be whatever the name of the Blender object is"
+    bl_options = {'PRESET'}
+
+    filename_ext = ".pob"
+    filter_glob: StringProperty(
+            default="*.pob",
+            options={'HIDDEN'},
+            )
+
+    flip_uv_vertical: BoolProperty(
+            name="Flip UV Vertically",
+            description="SWG seems to flip DDS vertical axis, but blender doesn't. Need to flip UVs on import and export to be able to use Blender UV mapping without being destructive",
+            default=True,
+            )
+
+    export_children: BoolProperty(
+            name="Export Children",
+            description="When checked, will export children (under 'LODs') to individual .msh files. Uncheck to save export time if you only modified collision/hardpoints/floor/etc.",
+            default=True,
+            )
+    
+    use_imported_crc: BoolProperty(
+            name="Use Imported Crc",
+            description="Only valid on POBs originally imported from SWG. This will keep the same Crc (hash) as them, which is necessary to keep them synced in World Snapshots",
+            default=False,
+            )
+
+    def invoke(self, context, _event):
+        import os
+        if not self.filepath:
+            blend_filepath = context.blend_data.filepath
+            if not blend_filepath:
+                blend_filepath = "THE BLENDER OBJECT NAME WILL BE USED AS THE FILENAME, EXPORTED INTO THIS DIRECTORY!"
+            else:
+                blend_filepath = os.path.splitext(blend_filepath)[0]
+
+            self.filepath = blend_filepath + self.filename_ext
+
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        keywords = self.as_keywords(ignore=("filter_glob",
+                                            "check_existing"
+                                            ))
+        result = export_pob.save(context, **keywords)
+        if result['status'] == 'ERROR':
+            self.report({'ERROR'}, result['message'])
+            return {'CANCELLED'}
+        else:
+            return {'FINISHED'}
+
+    def draw(self, context):
+        pass
+
+class POB_PT_export_option(bpy.types.Panel):
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_label = "Option"
+    bl_parent_id = "FILE_PT_operator"
+
+    @classmethod
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        return operator.bl_idname == "EXPORT_SCENE_OT_pob"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+        
+        layout.prop(operator, 'flip_uv_vertical')
+        layout.prop(operator, 'export_children')
+        layout.prop(operator, 'use_imported_crc')
+        
 def import_operators(self, context):
     self.layout.operator(ImportMGN.bl_idname, text="SWG Animated Mesh (.mgn)")
     self.layout.operator(ImportMSH.bl_idname, text="SWG Static Mesh (.msh)")
     self.layout.operator(ImportLOD.bl_idname, text="SWG Static Level of Detail (.lod)")
+    self.layout.operator(ImportPOB.bl_idname, text="SWG Portalized Object (.pob)")
 
 def export_operators(self, context):
     self.layout.operator(ExportMGN.bl_idname, text="SWG Animated Mesh (.mgn)")
     self.layout.operator(ExportMSH.bl_idname, text="SWG Static Mesh (.msh)")
+    self.layout.operator(ExportLOD.bl_idname, text="SWG Static Level of Detail (.lod)")
+    self.layout.operator(ExportPOB.bl_idname, text="SWG Portalized Object (.pob)")
 
 def dump(obj, text):
     for attr in dir(obj):
@@ -610,14 +804,13 @@ class SWG_Create_Apt_For_Msh(bpy.types.Operator):
     def execute(self, context): 
 
         apt_path =  self.properties.filepath 
-        apt_reference = (functools.reduce(os.path.join,["mesh", context.active_object.name]) + ".msh").lower()
-        print(f"Writing apt: {apt_path} For mesh: {apt_reference}")
+        apt_reference = f"appearance/mesh/{context.active_object.name}.msh"
         apt = swg_types.AptFile(apt_path, apt_reference)
         apt.write()
         return {'FINISHED'}
 
     def invoke(self, context, event):
-        default_filename=context.active_object.name.lower()+".apt"
+        default_filename=context.active_object.name+".apt"
         self.filename = default_filename
         self.filepath = default_filename
         context.window_manager.fileselect_add(self)
@@ -729,6 +922,7 @@ class SWG_Load_Skeleton_For_MGN(bpy.types.Operator):
  
     def draw(self, context):
         pass
+
 class SWG_Initialize_MGN_From_Existing(bpy.types.Operator):
     bl_idname = "object.swg_initialize_mgn"
     bl_label = "Initialize MGN data (occlusions, bones, blends) from an existing MGN"
@@ -930,120 +1124,6 @@ class SWG_Generate_Blends_From_Other(bpy.types.Operator):
     def draw(self, context):
         pass
 
-class SWG_Offset_POB(bpy.types.Operator):
-    bl_idname = "object.swg_offset_pob"
-    bl_label = "Offset POB"
-    bl_description = '''Moves every portal/vert/floor in a POB file a given amount. Easier than rexporting everything'''
- 
-
-    filename_ext = ".pob"
-    filter_glob : StringProperty(
-        default="*.pob",
-        options={'HIDDEN'},
-        )
-    filepath: StringProperty(default="test.pob",subtype='FILE_PATH')
-
-    x_offset: FloatProperty(name="X Offset")
-    y_offset: FloatProperty(name="Y Offset")
-    z_offset: FloatProperty(name="Z Offset")
-
-    @classmethod
-    def poll(cls, context):
-        return context.preferences.addons[__package__].preferences.swg_root != ""
-
-
-    def execute(self, context): 
-        SWG_ROOT=context.preferences.addons[__package__].preferences.swg_root
-        print(f"Would offset {self.properties.filepath} by {self.x_offset}, {self.y_offset}, {self.z_offset}")
-        files_to_process=[]
-        iff = nsg_iff.IFF(filename=self.properties.filepath)
-        iff.enterForm("PRTO")
-        version=iff.getCurrentName()
-        if version in ['0004']:
-            iff.enterForm(version)
-            iff.enterChunk("DATA")
-            iff.exitChunk("DATA")
-
-            # Portals ...
-            iff.enterForm("PRTS")
-            while not iff.atEndOfForm():
-                print("Updating IDTL...")
-                iff.enterForm("IDTL")
-                iff.enterForm("0000")
-                iff.enterChunk("VERT")
-                while not iff.atEndOfForm():
-                    print("Updating vertex...")
-                    iff.update_vector3(self.x_offset, self.y_offset, self.z_offset)
-                iff.exitChunk("VERT")
-                iff.enterChunk("INDX")
-                iff.exitChunk("INDX")
-                iff.exitForm("0000")
-                iff.exitForm("IDTL")
-            iff.exitForm("PRTS")
-
-            #Cells now
-            iff.enterForm("CELS")
-            while not iff.atEndOfForm():
-                iff.enterForm("CELL")
-                iff.enterForm("0005")
-                iff.enterChunk("DATA")
-                iff.read_int32() # Number of portals
-                iff.read_bool8() # Can see parent cell
-                iff.read_string() # Name
-                files_to_process.append(iff.read_string()) # appearance
-                if iff.read_bool8(): 
-                    files_to_process.append(iff.read_string()) #floor
-                iff.exitChunk("DATA")
-
-                # NSG-TODO Seek to Lights (LGHT) and update their positions too...
-                iff.exitForm("0005")
-                iff.exitForm("CELL")
-
-        else:
-            print(f"Unsupported PRTO version: {version}")
-
-        print(f"Files to process yet: {str(files_to_process)}")
-        for file in files_to_process:
-            fullpath = support.find_file(file, SWG_ROOT)
-            if file.endswith(".apt"):
-                apt = swg_types.AptFile(fullpath, "")
-                apt.offset_contents(self.x_offset,self.y_offset,self.z_offset,SWG_ROOT)     
-            elif file.endswith(".lod"):
-                lod = swg_types.LodFile(fullpath)
-                lod.offset_contents(self.x_offset,self.y_offset,self.z_offset,SWG_ROOT)
-            elif file.endswith(".msh"):
-                msh = swg_types.SWGMesh(fullpath, SWG_ROOT)
-                msh.offset_contents(self.x_offset,self.y_offset,self.z_offset)
-            elif file.endswith(".flr"):
-                flr = swg_types.FloorFile(fullpath)
-                flr.offset_contents(self.x_offset,self.y_offset,self.z_offset)
-            else:
-                print(f"Unhandled appearance type in POB: {fullpath}")
-        iff.write(iff.filename)
-        print(f"Done!")
-
-
-        return {'FINISHED'}
-
-    def invoke(self, context, event):
-        print(f"Invoked ...")
-        if context.preferences.addons[__package__].preferences.swg_root != "":            
-            self.filepath = context.preferences.addons[__package__].preferences.swg_root +"/appearance/"
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
- 
-    def draw(self, context):
-        
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False  # No animation.
-
-        sfile = context.space_data
-        operator = sfile.active_operator
-        layout.prop(operator, "x_offset")
-        layout.prop(operator, "y_offset")
-        layout.prop(operator, "z_offset")
-
 class SWG_Load_Flr(bpy.types.Operator):
     bl_idname = "object.swg_load_flr"
     bl_label = "Load Floor File"
@@ -1057,46 +1137,30 @@ class SWG_Load_Flr(bpy.types.Operator):
         )
     filepath: StringProperty(default="test.flr",subtype='FILE_PATH')
 
-    # x_offset: FloatProperty(name="X Offset")
-    # y_offset: FloatProperty(name="Y Offset")
-    # z_offset: FloatProperty(name="Z Offset")
-
     @classmethod
     def poll(cls, context):
-        return True #context.active_object != None
+        return True
 
-
-    def execute(self, context):        
-        global_matrix = axis_conversion(from_forward="-Z",
-                                        from_up="Y",
-                                        ).to_4x4()
-        import_flr.import_flr(context, self.properties.filepath, global_matrix)
+    def execute(self, context):
+        import_flr.import_flr(context, self.properties.filepath)
         return {'FINISHED'}
 
     def invoke(self, context, event):
-        print(f"Invoked ...")
         if context.preferences.addons[__package__].preferences.swg_root != "":            
             self.filepath = context.preferences.addons[__package__].preferences.swg_root +"/appearance/collision/"
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
  
-    def draw(self, context):
-        
+    def draw(self, context):        
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False  # No animation.
-
         sfile = context.space_data
-        operator = sfile.active_operator
-        # layout.prop(operator, "x_offset")
-        # layout.prop(operator, "y_offset")
-        # layout.prop(operator, "z_offset")
 
 class SWG_Write_Flr(bpy.types.Operator):
     bl_idname = "object.swg_write_flr"
     bl_label = "Write Floor File"
     bl_description = '''Writes a floor file'''
- 
 
     filename_ext = ".flr"
     filter_glob : StringProperty(
@@ -1105,104 +1169,13 @@ class SWG_Write_Flr(bpy.types.Operator):
         )
     filepath: StringProperty(default="test.flr",subtype='FILE_PATH')
 
-    x_offset: FloatProperty(name="X Offset")
-    y_offset: FloatProperty(name="Y Offset")
-    z_offset: FloatProperty(name="Z Offset")
-
     @classmethod
     def poll(cls, context):
         return context.active_object != None
 
 
-    def execute(self, context): 
-        # SWG_ROOT=context.preferences.addons[__package__].preferences.swg_root
-        # obj = context.active_object
-        # dirname = os.path.dirname(self.filepath)
-        # fullpath = os.path.join(dirname, obj.name+self.filename_ext)
-        # flr = swg_types.FloorFile(fullpath)
-
-        # me = context.active_object.to_mesh()
-
-        # # Lets find the tris in the "fallthrough" face map first..
-        # FALLTHROUGH_MAP_INDEX=None
-        # if len(obj.face_maps) > 0:    
-        #     face_maps = obj.face_maps 
-        #     for map in face_maps:
-        #         if map.name.lower() == "fallthrough":
-        #             FALLTHROUGH_MAP_INDEX = map.index
-        # if FALLTHROUGH_MAP_INDEX == None:
-        #     print("Warning! No 'fallthrough' FaceMap found, no triangles can be marked as fallthrough!")
-
-        # face_maps_by_index=[m_face_map.value for m_face_map in obj.data.face_maps.active.data]
-
-
-        # for v in me.vertices:
-        #     flr.verts.append([-v.co.x, v.co.z, v.co.y])
-
-        # edge_types={}
-        # for edge in me.edges:  
-        #     reversed=list(edge.vertices)
-        #     reversed.reverse()
-        #     if edge.use_freestyle_mark == True:
-        #         edge_types[tuple(edge.vertices)] = swg_types.FloorTri.Crossable
-        #         edge_types[tuple(reversed)] = swg_types.FloorTri.Crossable
-        #     elif edge.use_seam == True:
-        #         edge_types[tuple(edge.vertices)] = swg_types.FloorTri.Uncrossable
-        #         edge_types[tuple(reversed)] = swg_types.FloorTri.Uncrossable
-        #     elif edge.use_edge_sharp == True:
-        #         edge_types[tuple(edge.vertices)] = swg_types.FloorTri.WallTop
-        #         edge_types[tuple(reversed)] = swg_types.FloorTri.WallTop               
-        #     elif edge.crease > 0.9:
-        #         edge_types[tuple(edge.vertices)] = swg_types.FloorTri.WallBase
-        #         edge_types[tuple(reversed)] = swg_types.FloorTri.WallBase
-        #     else:
-        #         edge_types[tuple(edge.vertices)] = swg_types.FloorTri.Uncrossable
-        #         edge_types[tuple(reversed)] = swg_types.FloorTri.Uncrossable
-
-        # for t1 in me.polygons:
-        #     if(len(t1.vertices) != 3):
-        #         print(f"Error. Triangle {t1.index} has {len(t1.vertices)} vertices. Only triangles supported!")
-        #         return {'CANCELLED'}
-
-        #     ft = swg_types.FloorTri()
-        #     ft.index = t1.index
-        #     ft.corner1 = t1.vertices[0]
-        #     ft.corner2 = t1.vertices[1]
-        #     ft.corner3 = t1.vertices[2]
-
-        #     t1e1 = set([t1.vertices[0],t1.vertices[1]])
-        #     t1e2 = set([t1.vertices[1],t1.vertices[2]])
-        #     t1e3 = set([t1.vertices[2],t1.vertices[0]])
-
-        #     # find the edge types
-        #     ft.edgeType1 = edge_types[tuple(t1e1)]
-        #     ft.edgeType2 = edge_types[tuple(t1e2)]
-        #     ft.edgeType3 = edge_types[tuple(t1e3)]
-
-        #     for t2 in [x for x in me.polygons if x.index != t1.index]:
-        #         t2e1 = set([t2.vertices[0],t2.vertices[1]])
-        #         t2e2 = set([t2.vertices[1],t2.vertices[2]])
-        #         t2e3 = set([t2.vertices[2],t2.vertices[0]])
-
-        #         if t1e1 in [t2e1, t2e2, t2e3]:
-        #             ft.nindex1 = t2.index
-        #         if t1e2 in [t2e1, t2e2, t2e3]:
-        #             ft.nindex2 = t2.index
-        #         if t1e3 in [t2e1, t2e2, t2e3]:
-        #             ft.nindex3 = t2.index
-
-        #     ft.normal = [t1.normal.x, -t1.normal.z, -t1.normal.y]
-        #     ft.fallthrough = (face_maps_by_index[t1.index] == FALLTHROUGH_MAP_INDEX)
-
-        #     flr.tris.append(ft)
-
-        # flr.write()
-        # print(f"Writing floor {context.active_object.name} to {fullpath}")
-                
-        global_matrix = axis_conversion(from_forward="-Z",
-                                        from_up="Y",
-                                        ).to_4x4()
-        export_flr.export_flr(context, self.properties.filepath, global_matrix)
+    def execute(self, context):
+        export_flr.export_flr(context, self.properties.filepath)
 
         return {'FINISHED'}
 
@@ -1213,198 +1186,285 @@ class SWG_Write_Flr(bpy.types.Operator):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
  
-    def draw(self, context):
-        
+    def draw(self, context):        
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False  # No animation.
-
         sfile = context.space_data
         operator = sfile.active_operator
-        layout.prop(operator, "x_offset")
-        layout.prop(operator, "y_offset")
-        layout.prop(operator, "z_offset")
 
-class SWG_Load_Pob(bpy.types.Operator):
-    bl_idname = "object.swg_load_pob"
-    bl_label = "Load Pob File"
-    bl_description = '''Loads a POB file'''
- 
-
-    filename_ext = ".pob"
-    filter_glob : StringProperty(
-        default="*.pob",
-        options={'HIDDEN'},
-        )
-    filepath: StringProperty(default="test.pob",subtype='FILE_PATH')
-
-    x_offset: FloatProperty(name="X Offset")
-    y_offset: FloatProperty(name="Y Offset")
-    z_offset: FloatProperty(name="Z Offset")
+class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
+    bl_idname = "object.swg_visualize_flr_pathgraph"
+    bl_label = "Visualize Floor Pathgraph"
+    bl_description = '''Visualizes how SWG will (probably) connect your CellWaypoints'''
 
     @classmethod
     def poll(cls, context):
-        return True #context.active_object != None
+        return context.active_object != None
 
-    # ply_tato_house_sm_s01_hue.pob
-    def execute(self, context): 
-        SWG_ROOT=context.preferences.addons[__package__].preferences.swg_root
-        print(f"Loading pob {self.properties.filepath}")
-        pob = swg_types.PobFile(self.properties.filepath, SWG_ROOT)
-        pob.load()        
-            
-        name=os.path.basename(self.properties.filepath).rsplit( ".", 1 )[ 0 ]
-        collection = bpy.data.collections.new(name)
-        bpy.context.scene.collection.children.link(collection)
-
-        portal_objs={}
-        for p_ind, portal in enumerate(pob.portals):
-            mesh = bpy.data.meshes.new(name=f'PORTAL-{p_ind}-mesh')
-            obj = bpy.data.objects.new(f'PORTAL-{p_ind}', mesh) 
-            verts = []
-            edges = []
-            tris = []    
-
-            for ind, vert in enumerate(portal.verts):
-                verts.append(Vector([-vert.x, -vert.z, vert.y]))
+    def execute(self, context):
+        tmpFile= f"os.path.dirname(context.blend_data.filepath)/debugPathgraph.flr"
+        objects = context.selected_objects
+        floor=None
+        for ob in objects:
+            if ob.type != 'MESH':
+                continue
+            else:
+                result, floor = export_flr.export_one(tmpFile, ob, [])
                 
-                
-            for tri in portal.tris:
-                tris.append([tri.p1, tri.p2, tri.p3])
-
-            mesh.from_pydata(verts, edges, tris)        
-            mesh.update() 
-            mesh.validate()
-            portal_objs[p_ind] = obj
-            print(f"Added portal: {p_ind}, {obj.name}. Collection now: {len(portal_objs)}")
-
-        for cell in pob.cells:            
-            cell_collection = bpy.data.collections.new(cell.name)
-            collection.children.link(cell_collection)            
-
-            appearance_path = support.find_file(cell.appearance_file, SWG_ROOT)
-            if appearance_path and appearance_path.endswith(".msh"):
-                global_matrix = axis_conversion(from_forward="-Z",
-                                        from_up="Y",
-                                        ).to_4x4()
-
-                mesh = import_msh.import_msh(context,
-                appearance_path,
-                global_matrix=global_matrix,
-                collection=cell_collection,
-                flip_uv_vertical=False,
-                remove_duplicate_verts=False,
-                )
-            elif appearance_path and appearance_path.endswith(".lod"):
-                global_matrix = axis_conversion(from_forward="-Z",
-                                        from_up="Y",
-                                        ).to_4x4()
-
-                mesh = import_lod.load_new(context,
-                    appearance_path,
-                    global_matrix=global_matrix,
-                    parent=cell_collection,
-                    flip_uv_vertical=False,
-                    remove_duplicate_verts=False,
-                    )
-            elif appearance_path and appearance_path.endswith(".apt"):
-                apt = swg_types.AptFile(appearance_path)
-                apt.load()
-                referenceFilePath = apt.get_reference_fullpath(SWG_ROOT)
-
-                if referenceFilePath and referenceFilePath.endswith(".msh"):
-                    global_matrix = axis_conversion(from_forward="-Z",
-                                            from_up="Y",
-                                            ).to_4x4()
-
-                    mesh = import_msh.import_msh(context,
-                    referenceFilePath,
-                    global_matrix=global_matrix,
-                    collection=cell_collection,
-                    flip_uv_vertical=False,
-                    remove_duplicate_verts=False,
-                    )
-                elif referenceFilePath and referenceFilePath.endswith(".lod"):
-                    global_matrix = axis_conversion(from_forward="-Z",
-                                            from_up="Y",
-                                            ).to_4x4()
-
-                    mesh = import_lod.load_new(context,
-                        referenceFilePath,
-                        global_matrix=global_matrix,
-                        parent=cell_collection,
-                        flip_uv_vertical=False,
-                        remove_duplicate_verts=False,
-                        )
+                if not 'FINISHED' in result:
+                    return {'ERROR'}
                 else:
-                    print(f"Couldn't find referenced file: {apt.reference}")
+                    break
 
-            if cell.floor_file:
-                floor_path = support.find_file(cell.floor_file, SWG_ROOT)
-                if floor_path:
-                    print(f"Found floor_file: {cell.floor_file} at {floor_path}")
-                    global_matrix = axis_conversion(from_forward="-Z",
-                                            from_up="Y",
-                                            ).to_4x4()
+        if floor == None:
+            print(f"Error! Couldn't export .flr from {ob.name}")
+            return {'ERROR'}
 
-                    flr = import_flr.import_flr(context,
-                                                floor_path,
-                                                global_matrix=global_matrix,
-                                                collection=cell_collection,
-                                                ) 
-                else:
-                    print(f"Didn't find floor_file: {cell.floor_file}")
-                
-            # Collision:                        
-            collision = bpy.data.collections.new(f"Collision-{cell.name}")
-            cell_collection.children.link(collision)   
-            if cell.collision:
-                support.add_collision_to_collection(collision, cell.collision, global_matrix, False)
+        print(f"Visualizing pathgraph with {len(floor.pathGraph.nodes)} nodes and {len(floor.pathGraph.edges)} edges...")
+        if 'FINISHED' not in result:
+            return {'ERROR'}
+        else:
+            try:
+                col = bpy.data.collections["VisualizePathgraph"]
+            except KeyError:
+                col = bpy.data.collections.new("VisualizePathgraph")
+                bpy.context.scene.collection.children.link(col)
 
-
-            # Create pert-room portal collection and associate portal objects with it
-            portals = bpy.data.collections.new(f"PORTALS-{cell.name}")
-            cell_collection.children.link(portals)
-            for pi in cell.portal_ids:
-                portals.objects.link(portal_objs[pi])
+            for obj in col.objects:
+                    bpy.data.objects.remove(obj, do_unlink=True)
+            support.create_pathgraph(col, floor.pathGraph)
 
         return {'FINISHED'}
-
-    def invoke(self, context, event):
-        if context.preferences.addons[__package__].preferences.swg_root != "":            
-            self.filepath = context.preferences.addons[__package__].preferences.swg_root +"/appearance/"
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
  
     def draw(self, context):
-        
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False  # No animation.
+        pass
 
-        sfile = context.space_data
-        operator = sfile.active_operator
-        layout.prop(operator, "x_offset")
-        layout.prop(operator, "y_offset")
-        layout.prop(operator, "z_offset")
+class SWG_Create_LOD(bpy.types.Operator):
+    bl_idname = "object.swg_create_lod"
+    bl_label = "Create a basic LOD hierachy"
+    bl_description = ''''''
+ 
+    def execute(self, context):
+        collection = bpy.data.collections.new("NewLODName")
+        bpy.context.scene.collection.children.link(collection)
+
+        child = bpy.data.collections.new("LODs")
+        collection.children.link(child)
+
+        child = bpy.data.collections.new("Hardpoints")
+        collection.children.link(child)
+
+        child = bpy.data.collections.new("Floor")
+        collection.children.link(child)
+
+        child = bpy.data.collections.new("Radar/Test/Write")
+        collection.children.link(child)
+
+        child = bpy.data.collections.new("Collision")
+        collection.children.link(child)
+
+        return {'FINISHED'}
+ 
+    def draw(self, context):
+        pass
+
+class SWG_Add_Distance_CP(bpy.types.Operator):
+    bl_idname = "object.swg_add_distance_cp"
+    bl_label = "Add 'Distance Custom' Property to selection"
+    bl_description = '''Add the 'distance' Custom Property to selected meshes'''
+ 
+    def execute(self, context):
+        start=50
+        offset=50
+        objs = sorted(context.selected_objects, key=lambda x: x.name)
+        for obj in objs:
+            if obj.type == 'MESH':
+                obj['distance'] = start
+                start += offset
+
+        return {'FINISHED'}
+ 
+    def draw(self, context):
+        pass
+
+class SWG_Create_POB(bpy.types.Operator):
+    bl_idname = "object.swg_create_pob"
+    bl_label = "Create a basic POB hierachy"
+    bl_description = ''''''
+ 
+    def execute(self, context):
+        collection = bpy.data.collections.new("NewPOBName")
+        bpy.context.scene.collection.children.link(collection)
+
+        # r0
+        r0 = bpy.data.collections.new("r0")
+        collection.children.link(r0)
+
+        app = bpy.data.collections.new("Appearance_r0")
+        r0.children.link(app)
+
+        child = bpy.data.collections.new("LODs")
+        app.children.link(child)
+
+        child = bpy.data.collections.new("Hardpoints")
+        app.children.link(child)
+
+        child = bpy.data.collections.new("Radar/Test/Write")
+        app.children.link(child)
+
+        child = bpy.data.collections.new("Collision_r0")
+        r0.children.link(child)
+
+        child = bpy.data.collections.new("Lights_r0")
+        r0.children.link(child)
+
+        child = bpy.data.collections.new("Portals_r0")
+        r0.children.link(child)
+
+        
+        #r1
+        r1 = bpy.data.collections.new("Room1")
+        collection.children.link(r1)
+
+        child = bpy.data.collections.new("Collision_Room1")
+        r1.children.link(child)
+
+        child = bpy.data.collections.new("Lights_Room1")
+        r1.children.link(child)
+
+        child = bpy.data.collections.new("Portals_Room1")
+        r1.children.link(child)
+
+        return {'FINISHED'}
+ 
+    def draw(self, context):
+        pass
+class SWG_Create_POB_Room(bpy.types.Operator):
+    bl_idname = "object.swg_create_pob_room"
+    bl_label = "Add a room to the current POB hierachy"
+    bl_description = ''''''
+ 
+    @classmethod
+    def poll(self, context):
+        collection = bpy.context.view_layer.active_layer_collection.collection
+        return collection != None
+
+    def execute(self, context):        
+        collection = bpy.context.view_layer.active_layer_collection.collection        
+        name=f'r{len(collection.children)}'
+        r1 = bpy.data.collections.new(name)
+        collection.children.link(r1)
+        child = bpy.data.collections.new(f"Collision_{name}")
+        r1.children.link(child)
+        child = bpy.data.collections.new(f"Lights_{name}")
+        r1.children.link(child)
+        child = bpy.data.collections.new(f"Portals_{name}")
+        r1.children.link(child)
+        return {'FINISHED'}
+ 
+    def draw(self, context):
+        pass
+
+class SWG_Portals_Passable(bpy.types.Operator):
+    bl_idname = "object.swg_portals_passable"
+    bl_label = "Mark selected portals as passable"
+    bl_description = "Adds the 'passable' Custom Property to all meshes in the selection, with value of True"
+ 
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                obj['passable'] = True
+
+        return {'FINISHED'}
+ 
+    def draw(self, context):
+        pass
+
+class SWG_Portals_Unpassable(bpy.types.Operator):
+    bl_idname = "object.swg_portals_unpassable"
+    bl_label = "Mark selected portals as unpassable"
+    bl_description = "Adds the 'passable' Custom Property to all meshes in the selection, with value of False"
+ 
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                obj['passable'] = False
+
+        return {'FINISHED'}
+ 
+    def draw(self, context):
+        pass
+
+class SWGMaterialsMenu(bpy.types.Menu):
+    bl_label = "Materials"
+    bl_idname = "VIEW3D_MT_SWG_materials_menu"
+
+    def draw(self, context):
+        layout = self.layout   
+        layout.operator(SWG_Load_Materials_Operator.bl_idname, text=SWG_Load_Materials_Operator.bl_label)
+        layout.operator(SWG_Add_Material_Operator.bl_idname, text=SWG_Add_Material_Operator.bl_label)
+
+class SWGMshMenu(bpy.types.Menu):
+    bl_label = "MSH (static mesh)"
+    bl_idname = "VIEW3D_MT_SWG_msh_menu"
+
+    def draw(self, context):
+        layout = self.layout   
+        layout.operator(SWG_Create_Apt_For_Msh.bl_idname, text=SWG_Create_Apt_For_Msh.bl_label)
+
+class SWGFlrMenu(bpy.types.Menu):
+    bl_label = "FLR (floor)"
+    bl_idname = "VIEW3D_MT_SWG_flr_menu"
+
+    def draw(self, context):
+        layout = self.layout
+        #layout.operator(SWG_Load_Flr.bl_idname, text=SWG_Load_Flr.bl_label)
+        #layout.operator(SWG_Write_Flr.bl_idname, text=SWG_Write_Flr.bl_label)
+        layout.operator(SWG_Visualize_Floor_Pathgraph.bl_idname, text=SWG_Visualize_Floor_Pathgraph.bl_label)
+
+class SWGMgnMenu(bpy.types.Menu):
+    bl_label = "MGN (animated mesh)"
+    bl_idname = "VIEW3D_MT_SWG_mgn_menu"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator(SWG_Create_Sat_For_Mgn.bl_idname, text=SWG_Create_Sat_For_Mgn.bl_label)
+        layout.operator(SWG_Swap_Bone_Names_To_Source.bl_idname, text= SWG_Swap_Bone_Names_To_Source.bl_label)
+        layout.operator(SWG_Generate_Blends_From_Other.bl_idname, text=SWG_Generate_Blends_From_Other.bl_label)
+
+class SWGLodMenu(bpy.types.Menu):
+    bl_label = "LOD (level of detail)"
+    bl_idname = "VIEW3D_MT_SWG_lod_menu"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator(SWG_Create_LOD.bl_idname, text=SWG_Create_LOD.bl_label)
+        layout.operator(SWG_Add_Distance_CP.bl_idname, text=SWG_Add_Distance_CP.bl_label)
+
+class SWGPobMenu(bpy.types.Menu):
+    bl_label = "POB (Portalized Object)"
+    bl_idname = "VIEW3D_MT_SWG_pob_menu"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator(SWG_Create_POB.bl_idname, text=SWG_Create_POB.bl_label)
+        layout.operator(SWG_Create_POB_Room.bl_idname, text=SWG_Create_POB_Room.bl_label)
+        layout.operator(SWG_Portals_Passable.bl_idname, text=SWG_Portals_Passable.bl_label)
+        layout.operator(SWG_Portals_Unpassable.bl_idname, text=SWG_Portals_Unpassable.bl_label)
 
 class SWGMenu(bpy.types.Menu):
     bl_label = "SWG"
     bl_idname = "VIEW3D_MT_SWG_menu"
 
     def draw(self, context):
-        layout = self.layout        
-        layout.operator(SWG_Initialize_MGN_From_Existing.bl_idname, text=SWG_Initialize_MGN_From_Existing.bl_label)    
-        layout.operator(SWG_Load_Materials_Operator.bl_idname, text=SWG_Load_Materials_Operator.bl_label)
-        layout.operator(SWG_Add_Material_Operator.bl_idname, text=SWG_Add_Material_Operator.bl_label)
-        layout.operator(SWG_Create_Apt_For_Msh.bl_idname, text=SWG_Create_Apt_For_Msh.bl_label)
-        layout.operator(SWG_Create_Sat_For_Mgn.bl_idname, text=SWG_Create_Sat_For_Mgn.bl_label)
-        layout.operator(SWG_Swap_Bone_Names_To_Source.bl_idname, text= SWG_Swap_Bone_Names_To_Source.bl_label)
-        layout.operator(SWG_Generate_Blends_From_Other.bl_idname, text=SWG_Generate_Blends_From_Other.bl_label)
-        layout.operator(SWG_Offset_POB.bl_idname, text=SWG_Offset_POB.bl_label)
-        layout.operator(SWG_Load_Flr.bl_idname, text=SWG_Load_Flr.bl_label)
-        layout.operator(SWG_Write_Flr.bl_idname, text=SWG_Write_Flr.bl_label)
-        layout.operator(SWG_Load_Pob.bl_idname, text=SWG_Load_Pob.bl_label)
+        layout = self.layout
+        layout.menu(SWGMaterialsMenu.bl_idname)
+        layout.menu(SWGMgnMenu.bl_idname)
+        layout.menu(SWGMshMenu.bl_idname)
+        layout.menu(SWGLodMenu.bl_idname)
+        layout.menu(SWGFlrMenu.bl_idname)
+        layout.menu(SWGPobMenu.bl_idname)
 
 def draw_item(self, context):
     layout = self.layout
@@ -1423,6 +1483,12 @@ classes = (
     MGN_PT_import_option,  
     ImportLOD,
     LOD_PT_import_option,
+    ExportLOD,
+    ImportPOB,
+    POB_PT_import_option,
+    LOD_PT_export_option,
+    ExportPOB,
+    POB_PT_export_option,
     SWG_Load_Materials_Operator,
     SWG_Add_Material_Operator,
     SWG_Create_Apt_For_Msh,
@@ -1431,11 +1497,22 @@ classes = (
     SWG_Initialize_MGN_From_Existing,
     SWG_Swap_Bone_Names_To_Source,
     SWG_Generate_Blends_From_Other,
-    SWG_Offset_POB,
     SWG_Load_Flr,
     SWG_Write_Flr,
-    SWG_Load_Pob,
-    SWGMenu,
+    SWG_Visualize_Floor_Pathgraph,
+    SWG_Create_LOD,
+    SWG_Add_Distance_CP,
+    SWG_Create_POB,
+    SWG_Create_POB_Room,
+    SWG_Portals_Unpassable,
+    SWG_Portals_Passable,
+    SWGMaterialsMenu,
+    SWGMgnMenu,
+    SWGMshMenu,
+    SWGFlrMenu,
+    SWGLodMenu,
+    SWGPobMenu,
+    SWGMenu
 )
 
 

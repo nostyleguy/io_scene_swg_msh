@@ -23,37 +23,26 @@
 import base64, os, bpy, time, datetime, math
 import bmesh
 from mathutils import Matrix, Vector, Color, Quaternion, Euler
-
-from bpy_extras.io_utils import unpack_list
 from bpy_extras.wm_utils.progress_report import ProgressReport
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
+from bpy_extras.io_utils import axis_conversion
 from bpy_extras import node_shader_utils
 from bpy import utils
 
 from . import import_msh
+from . import import_flr
 from . import swg_types
 from . import support
 from . import extents
-
-def rotate_object(obj, rot_mat):
-    # decompose world_matrix's components, and from them assemble 4x4 matrices
-    orig_loc, orig_rot, orig_scale = obj.matrix_world.decompose()
-
-    orig_loc_mat   = Matrix.Translation(orig_loc)
-    orig_rot_mat   = orig_rot.to_matrix().to_4x4()
-    orig_scale_mat = (Matrix.Scale(orig_scale[0],4,(1,0,0)) @ 
-                      Matrix.Scale(orig_scale[1],4,(0,1,0)) @ 
-                      Matrix.Scale(orig_scale[2],4,(0,0,1)))
-
-    obj.matrix_world = orig_loc_mat @ rot_mat @ orig_rot_mat @ orig_scale_mat
      
 def load_new(context,
              filepath,
-             *,     
-             global_matrix=None,
+             *,
              parent=None,
              flip_uv_vertical=False,
              remove_duplicate_verts=True,
+             do_floor=True,
+             do_collision=True
              ):  
 
     s=context.preferences.addons[__package__].preferences.swg_root
@@ -78,18 +67,26 @@ def load_new(context,
 
     hardpoints = bpy.data.collections.new("Hardpoints")
     collection.children.link(hardpoints)
+    
+    if do_floor:
+        floorCol = bpy.data.collections.new("Floor")
+        collection.children.link(floorCol)
+        if lodFile.floor != None:
+            floor_path = support.find_file(lodFile.floor, s)
+            if floor_path:
+                flr = import_flr.import_flr(context, floor_path, collection=floorCol ) 
+            else:
+                print(f"Didn't find floor_file: {lodFile.floor}")
 
-    collision = bpy.data.collections.new("Collision")
-    collection.children.link(collision)
     rtw = bpy.data.collections.new("Radar/Test/Write")
     collection.children.link(rtw)
 
     if lodFile.radar:
-        support.add_rtw_mesh(rtw, lodFile.radar, global_matrix, "Radar")
+        support.add_rtw_mesh(rtw, lodFile.radar, "Radar")
     if lodFile.testshape:
-        support.add_rtw_mesh(rtw, lodFile.testshape, global_matrix, "Test")
+        support.add_rtw_mesh(rtw, lodFile.testshape, "Test")
     if lodFile.writeshape:
-        support.add_rtw_mesh(rtw, lodFile.writeshape, global_matrix, "Write")
+        support.add_rtw_mesh(rtw, lodFile.writeshape, "Write")
 
 
     for id, lod in lodFile.lods.items():
@@ -100,39 +97,17 @@ def load_new(context,
             continue
         elif file.endswith(".msh"):
             print(f"Importing mesh: {lod[2]} from {file}")
-            obj = import_msh.import_msh(context,  file, global_matrix, lods)
+            obj = import_msh.import_msh(context, file, lods, flip_uv_vertical, remove_duplicate_verts, True)
+            obj['distance'] = lod[1]
         else:
             print(f"Unhandled LOD Child type: {file}")
 
-    support.add_collision_to_collection(collision, lodFile.collision, global_matrix)
-    
+    if do_collision:
+        collision = bpy.data.collections.new("Collision")
+        collection.children.link(collision)
+        support.add_collision_to_collection(collision, lodFile.collision)    
 
-    for hpnts in lodFile.hardpoints:
-        hpntadded = bpy.data.objects.new(name=hpnts[12], object_data=None)
-        hpntadded.matrix_world = [
-            [hpnts[0], hpnts[8], hpnts[4], 0.0],
-            [hpnts[1], hpnts[9], hpnts[5], 0.0],
-            [hpnts[2], hpnts[10], hpnts[6], 0.0],
-            [hpnts[3], hpnts[11], hpnts[7], 0.0],
-        ]
-        hpntadded.empty_display_type = "ARROWS"
-        #hpntadded.empty_display_size = 0.1
-        hpntadded.location[1] *= -1
-        hpntadded.rotation_euler[2] +=  math.radians(180.0)
+    for hpnts in lodFile.hardpoints:     
+        support.create_hardpoint_obj(hpnts[12], hpnts[0:12], collection = hardpoints)
 
-        #hpntadded.parent = obj
-        hardpoints.objects.link(hpntadded)
-
-    # obj["Collision"] = base64.b64encode(msh.collision).decode('ASCII')
-    # # collisionObj = bpy.data.objects.new(name="COLLISION", object_data=None)
-    # # collisionObj.empty_display_type = "SPHERE"
-    # # collisionObj.scale=(3,1,2)
-    # # collisionObj.empty_display_size = 1
-    # # collisionObj.parent = obj
-    # #bpy.context.collection.objects.link(collisionObj)
-
-    # obj["Floor"] = msh.floor
-
-    # print(f"Success!")
-
-    return {'FINISHED'}
+    return ('SUCCESS', collection)

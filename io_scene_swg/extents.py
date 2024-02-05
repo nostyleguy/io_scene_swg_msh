@@ -1,6 +1,7 @@
 from . import nsg_iff
 from . import vector3D
 from . import swg_types
+from mathutils import Vector
 
 class Extents():
     def __init__(self):
@@ -25,12 +26,31 @@ class Extents():
             return MeshExtent.create(iff)
         elif tag == "DTAL":
             return DetailExtent.create(iff)
+        elif tag == "XCYL":
+            return CylinderExtent.create(iff)
         else:
             print(f"Unhandled extent type: {tag}")
 
         return None
 
+    def write(extent, iff):
+        if extent == None:
+            extent = NullExtents()
+        extent.write(iff)
+            
+class NullExtents(Extents):
+    def __init__(self):
+        pass
+
+    def write(self, iff):        
+        iff.insertForm("NULL")
+        iff.exitForm("NULL")
+
 class BoxExtents(Extents):
+    def __init__(self):
+        self.min = [0, 0, 0]
+        self.max = [0, 0, 0]
+
     def __init__(self, min, max):
         self.min = min
         self.max = max
@@ -52,13 +72,64 @@ class BoxExtents(Extents):
         iff.exitForm("EXBX")
         return BoxExtents(min, max)
 
+    def write(self, iff):
+        iff.insertForm("EXBX")
+        iff.insertForm("0001")
+
+        iff.insertForm("EXSP")
+        iff.insertForm("0001")
+        iff.insertChunk("SPHR")
+        max = Vector(self.max)
+        min = Vector(self.min)
+        center = (max + min) / 2.0
+        diff = (max - min) / 2.0
+        rad = diff.magnitude
+        iff.insertFloatVector3(center[:])
+        iff.insertFloat(rad)
+        iff.exitChunk("SPHR")
+        iff.exitForm("0001")
+        iff.exitForm("EXSP")
+
+        iff.insertChunk("BOX ")
+        iff.insertFloatVector3(self.max)
+        iff.insertFloatVector3(self.min)
+        iff.exitChunk("BOX ")
+
+        iff.exitForm("0001")
+        iff.exitForm("EXBX")
+
     def getCenter(self):
         mag = (self.max - self.min) 
         vec =  vector3D.Vector3D(mag.x/2, mag.y/2, mag.z/2) + self.min
         return [vec.x,vec.y,vec.z]
 
     def getSize(self):
-        return [(self.max.x - self.min.x)/2, (self.max.y - self.min.y)/2, (self.max.z - self.min.z)/2]
+        return [abs(self.max.x - self.min.x)/2, abs(self.max.y - self.min.y)/2, abs(self.max.z - self.min.z)/2]
+
+    def fromCenterAndScale(self, center, scale): 
+        self.min = center - scale
+        self.max = center + scale
+        print(f"Center {center} Scale: {scale} Min: {self.min} Max: {self.max}")  
+
+
+    def expand(self, other):
+        if not isinstance(other, BoxExtents):
+            print(f"Warning! Cannot use BoxExtents.expand with other type: {type(other)}. Only BoxExtents are supported!")
+            return
+
+        if other.min[0] < self.min[0]:
+            self.min[0] = other.min[0]
+        if other.min[1] < self.min[1]:
+            self.min[1] = other.min[1]
+        if other.min[2] < self.min[2]:
+            self.min[2] = other.min[2]
+
+        if other.max[0] > self.max[0]:
+            self.max[0] = other.max[0]
+        if other.max[1] > self.max[1]:
+            self.max[1] = other.max[1]
+        if other.max[2] > self.max[2]:
+            self.max[2] = other.max[2]
 
 class SphereExtents(Extents):
     def __init__(self, center, radius):
@@ -77,97 +148,47 @@ class SphereExtents(Extents):
         iff.exitForm("EXSP")
         return SphereExtents(center, radius)
 
-# public class SphereExtents : Extents
-# {
-#     public Vector3 center;
-#     public float radius;
-#     Color color;
+    def write(self, iff):
+        iff.insertForm("EXSP")
+        iff.insertForm("0001")
+        iff.insertChunk("SPHR")
+        iff.insertFloatVector3(self.center)
+        iff.insertFloat(self.radius)
+        iff.exitChunk("SPHR")
+        iff.exitForm("0001")
+        iff.exitForm("EXSP")
 
-#     public static SphereExtents create(Iff iff)
-#     {
-#         iff.enterForm("EXSP");
-#         iff.enterForm("0001");
-#         iff.enterChunk("SPHR");
-#         Vector3 center = new Vector3(iff.read_float(), iff.read_float(), iff.read_float());
-#         float radius = iff.read_float();
-#         Debug.LogFormat("Center: {0} Radius: {1}", center, radius);
-#         iff.exitChunk("SPHR");
-#         iff.exitForm("0001");
-#         iff.exitForm("EXSP");
-#         SphereExtents e = new SphereExtents(center, radius, Color.yellow);
-#         return e;
-#     }
-#     public SphereExtents(Vector3 center, float r, Color color)
-#     {
-#         this.center = center;
-#         this.radius = r;
-#         this.color = color;
-#     }
-#     public override void DrawGizmos(Transform parent)
-#     {
-#         Color old = Gizmos.color;
-#         Gizmos.color = color;
-#         Gizmos.DrawWireSphere(parent.TransformPoint(center), radius);
-#         Gizmos.color = old;
-#     }
 
-#     public override void AddToGameObject(GameObject go)
-#     {
-#         SphereCollider c = go.AddComponent<SphereCollider>();
-#         c.center = center;
-#         c.radius = radius;
-#     }
-# }
+class CylinderExtent(Extents):
+    def __init__(self, base, radius, height):
+        self.base = base
+        self.radius = radius
+        self.height = height
 
-# public class BoxExtents : Extents
-# {
-#     public Vector3 min;
-#     public Vector3 max;
-#     public Color color;
+    def create(iff):
+        iff.enterForm("XCYL")
+        iff.enterForm("0000")
+        iff.enterChunk("CYLN")
+        base = iff.read_vector3()
+        radius = iff.read_float()
+        height = iff.read_float()
+        #print(f"Center: {center} Radius: {radius}")
+        iff.exitChunk("CYLN")
+        iff.exitForm("0000")
+        iff.exitForm("XCYL")
+        return CylinderExtent(base, radius, height)    
 
-#     public static BoxExtents create(Iff iff)
-#     {
-#         iff.enterForm("EXBX");
-#         iff.enterForm("0001");
+    def write(self, iff):
+        iff.insertForm("XCYL")
+        iff.insertForm("0000")
+        iff.insertChunk("CYLN")
+        iff.insertFloatVector3(self.base)
+        iff.insertFloat(self.radius)
+        iff.insertFloat(self.height)
+        iff.exitChunk("CYLN")
+        iff.exitForm("0000")
+        iff.exitForm("XCYL")
 
-#         iff.enterForm("EXSP");
-#         iff.exitForm("EXSP");
-
-#         iff.enterChunk("BOX ");
-#         Vector3 min = new Vector3(iff.read_float(), iff.read_float(), iff.read_float());
-#         Vector3 max = new Vector3(iff.read_float(), iff.read_float(), iff.read_float());
-#         Debug.LogFormat("Min: {0} Max: {1}", min, max);
-#         iff.exitChunk("BOX ");
-#         iff.exitForm("0001");
-#         iff.exitForm("EXBX");
-#         BoxExtents e = new BoxExtents(min, max, Color.blue);
-#         return e;
-#     }
-#     public BoxExtents(Vector3 min, Vector3 max, Color color)
-#     {
-#         this.min = min;
-#         this.max = max;
-#         this.color = color;
-#     }
-
-#     public override void DrawGizmos(Transform parent)
-#     {
-#         Vector3 minWorld = parent.TransformPoint(min);
-#         Vector3 maxWorld = parent.TransformPoint(max);
-#         Vector3 size = new Vector3(Mathf.Abs(max.x - min.x) * parent.localScale.x, Mathf.Abs(max.y - min.y) * parent.localScale.y, Mathf.Abs(max.z - min.z) * parent.localScale.z);
-#         Color old = Gizmos.color;
-#         Gizmos.color = color;
-#         Gizmos.DrawWireCube((minWorld + (maxWorld - minWorld) / 2), size );
-#         Gizmos.color = old;
-#     }
-
-#     public override void AddToGameObject(GameObject go)
-#     {
-#         BoxCollider c = go.AddComponent<BoxCollider>();
-#         c.center = (min + (max - min) / 2);
-#         c.size = new Vector3(Mathf.Abs(max.x - min.x), Mathf.Abs(max.y - min.y), Mathf.Abs(max.z - min.z));
-#     }
-# }
 
 class CompositeExtent (Extents):
 
@@ -181,6 +202,14 @@ class CompositeExtent (Extents):
         iff.enterForm("0000")
         while (not iff.atEndOfForm()):
             self.extents.append(Extents.create(iff))
+        iff.exitForm("0000")
+        iff.exitForm("CPST")    
+
+    def write(self, iff):
+        iff.insertForm("CPST")
+        iff.insertForm("0000")
+        for e in self.extents:
+            Extents.write(e, iff)
         iff.exitForm("0000")
         iff.exitForm("CPST")
 
@@ -201,6 +230,13 @@ class ComponentExtent(Extents):
         iff.enterForm("CMPT")
         iff.enterForm("0000")
         self.extent = CompositeExtent.create(iff)
+        iff.exitForm("0000")
+        iff.exitForm("CMPT")
+
+    def write(self, iff):
+        iff.insertForm("CMPT")
+        iff.insertForm("0000")
+        Extents.write(self.extent, iff)
         iff.exitForm("0000")
         iff.exitForm("CMPT")
 
@@ -228,43 +264,18 @@ class DetailExtent(Extents):
         iff.exitForm("0000")
         iff.exitForm("DTAL")
 
-# public class DetailExtent : Extents
-# {
-#     public CompositeExtent extent;
+    def write(self, iff):
+        iff.insertForm("DTAL")
+        iff.insertForm("0000")
+        iff.insertForm("CPST")
+        iff.insertForm("0000")
+        Extents.write(self.broad_extent, iff)
+        Extents.write(self.extents, iff)
+        iff.exitForm("0000")
+        iff.exitForm("CPST")
+        iff.exitForm("0000")
+        iff.exitForm("DTAL")
 
-#     public static DetailExtent create(Iff iff)
-#     {
-#         DetailExtent e = new DetailExtent();
-#         e.load(iff);
-#         return e;
-#     }
-#     public DetailExtent()
-#     {
-
-#     }
-
-#     public void load(Iff iff)
-#     {
-#         iff.enterForm("DTAL");
-#         iff.enterForm("0000");
-#         extent = CompositeExtent.create(iff);
-#         iff.exitForm("0000");
-#         iff.exitForm("DTAL");
-#     }
-
-#     public override void DrawGizmos(Transform parent)
-#     {
-#         if (extent != null)
-#         {
-#             extent.DrawGizmos(parent);
-#         }
-#     }
-
-#     public override void AddToGameObject(GameObject go)
-#     {
-#         extent.AddToGameObject(go);
-#     }
-# }
 
 class MeshExtent(object):
 
@@ -289,227 +300,13 @@ class MeshExtent(object):
 
         print(f"Created CMSH with {len(self.verts)} verts and {len(self.triangles)} triangles!")
 
-# public class MeshExtent : Extents 
-# {
-#     public int[] triangles;
-#     public Vector3[] verts;
-#     IffClasses.IndexedTriangleListIFF tri;
-#     public static MeshExtent create(Iff iff)
-#     {
-#         MeshExtent e = new MeshExtent();
-#         e.load(iff);
-#         return e;
-#     }
+    def write(self, iff):        
+        iff.insertForm("CMSH")
+        iff.insertForm("0000")
+        idtl = swg_types.IndexedTriangleList()
+        idtl.verts = self.verts
+        idtl.indexes = self.triangles
+        idtl.write(iff)
+        iff.exitForm("0000")
+        iff.exitForm("CMSH")
 
-#     public void load(Iff iff)
-#     {
-#         iff.enterForm("CMSH");
-#         iff.enterForm("0000");
-#         tri = new IffClasses.IndexedTriangleListIFF(iff);
-#         tri.load(iff);
-#         iff.exitForm("0000");
-#         iff.exitForm("CMSH");
-#     }
-#     public MeshExtent()
-#     {
-#     }
-
-#     public override void DrawGizmos(Transform parent)
-#     {
-#         //foreach (Extents e in extents)
-#         //{
-#         //    e.DrawGizmos(parent);
-#         //}
-#     }
-
-#     public override void AddToGameObject(GameObject go)
-#     {
-#         tri.ToCollider(go);
-#     }
-# }
-
-#     {
-#         string tag = iff.getCurrentName();
-#         Debug.Log("Creating collision shape: " + tag);
-#         switch (tag)
-#         {
-#             case "NULL":
-#                 iff.enterForm();
-#                 iff.exitForm();
-#                 return null;
-#             case "EXSP":
-#                 return SphereExtents.create(iff);
-#             case "EXBX":
-#                 return BoxExtents.create(iff);
-#             case "CMPT":
-#                 return ComponentExtent.create(iff);
-#             case "CPST":
-#                 return CompositeExtent.create(iff);
-#             case "DTAL":
-#                 return DetailExtent.create(iff);
-#             case "CMSH":
-#                 return MeshExtent.create(iff);
-#             case "XOCL":
-#             case "XCYL":
-#             default:
-#                 Debug.LogFormat("Unhandled Extent Type: {0}", iff.getCurrentName());
-#                 break;
-#         }
-#         return null;
-#     }
-#     public static bool write(Iff iff, GameObject go, Transform origin = null)
-#     {
-#         Collider[] colliders = go.GetComponentsInChildren<Collider>();
-#         if(colliders.Length == 0)
-#         {
-#             return writeNull(iff, origin);
-#         }
-#         else if(colliders.Length == 1)
-#         {
-#             BoxCollider box = colliders[0] as BoxCollider;
-#             if(box != null)
-#             {
-#                 Debug.LogFormat("Writing a box: {0}", box.bounds);
-#                 return writeBox(iff, box, origin);
-#             }
-
-#             SphereCollider sphere = colliders[0] as SphereCollider;
-#             if(sphere != null)
-#             {
-#                 Debug.LogFormat("Writing a sphere: {0}", sphere.radius);
-#                 return writeSphere(iff, sphere, origin);
-#             }
-
-#             MeshCollider mesh = colliders[0] as MeshCollider;
-#             if (mesh != null)
-#             {
-#                 Debug.LogFormat("Writing a mesh: {0} tris", mesh.sharedMesh.triangles.Length);
-#                 return writeMesh(iff, mesh, origin);
-#             }
-#             return false;
-#         }
-#         else
-#         {
-#             writeMultiple(iff, colliders);
-#             Debug.LogFormat("Wrote Colliders: {0}", colliders.Length);
-#             return true;
-#         }
-#     }
-
-#     public static bool writeCollider(Iff iff, Collider col, Transform origin = null)
-#     {
-#         BoxCollider box = col as BoxCollider;
-#         if (box != null)
-#         {
-#             return writeBox(iff, box, origin);
-#         }
-
-#         SphereCollider sphere = col as SphereCollider;
-#         if (sphere != null)
-#         {
-#             return writeSphere(iff, sphere, origin);
-#         }
-
-#         MeshCollider mesh = col as MeshCollider;
-#         if (mesh != null)
-#         {
-#             return writeMesh(iff, mesh, origin);
-#         }
-#         return false;
-#     }
-#     public static bool writeSphere(Iff iff, SphereCollider sphere, Transform origin = null)
-#     {
-#         if (sphere != null)
-#         {
-#             iff.insertForm("EXSP");
-#             iff.insertForm("0001");
-#             iff.insertChunk("SPHR");
-#             Vector3 center = (origin != null) ? origin.InverseTransformPoint(sphere.center) : sphere.center;
-#             iff.insertChunkFloatVector(new Vec3(center.x, center.y, center.z));
-#             Debug.LogFormat("Wrote sphere center: {0} as {1}", sphere.center, center);
-#             iff.insertFloat(sphere.radius);
-#             iff.exitChunk("SPHR");
-#             iff.exitForm("0001");
-#             iff.exitForm("EXSP");
-#             return true;
-#         }
-#         return false;
-#     }
-#     public static bool writeBox(Iff iff, BoxCollider box, Transform origin = null)
-#     {
-#         if(box != null)
-#         {
-#             iff.insertForm("EXBX");
-#             iff.insertForm("0001");
-
-#             iff.insertForm("EXSP");
-#             iff.insertForm("0001");
-#             iff.insertChunk("SPHR");
-#             iff.insertChunkFloatVector(new Vec3(0,0,0));
-#             iff.insertFloat(1);
-#             iff.exitChunk("SPHR");
-#             iff.exitForm("0001");
-#             iff.exitForm("EXSP");
-
-#             iff.insertChunk("BOX ");
-#             //iff.insertChunkFloatVector(box.bounds.max);
-#             //iff.insertChunkFloatVector(box.bounds.min);
-#             Vector3 max = (origin != null) ? origin.InverseTransformPoint((box.size / 2) + box.center) : (box.size / 2) + box.center;
-#             Vector3 min = (origin != null) ? origin.InverseTransformPoint(-(box.size / 2) + box.center) : -(box.size / 2) + box.center;
-#             iff.insertChunkFloatVector(new Vec3(max.x, max.y, max.z));
-#             iff.insertChunkFloatVector(new Vec3(min.x, min.y, min.z));
-#             //iff.insertChunkFloatVector((box.size / 2) + box.center);
-#             //iff.insertChunkFloatVector(-(box.size / 2) + box.center);
-#             iff.exitChunk("BOX ");
-
-#             iff.exitForm("0001");
-#             iff.exitForm("EXBX");
-#             return true;
-#         }
-#         return false;
-#     }
-
-#     public static bool writeMesh(Iff iff, MeshCollider mesh, Transform origin = null)
-#     {
-#         if (mesh != null)
-#         {
-#             iff.insertForm("CMSH");
-#             iff.insertForm("0000");
-
-#             Iff meshIff = new Iff(100);
-#             IffClasses.IndexedTriangleListIFF tri = new IffClasses.IndexedTriangleListIFF(meshIff);
-#             tri.FromCollider(mesh);
-#             tri.write(meshIff);
-#             iff.insertIff(meshIff);
-
-#             iff.exitForm("0000");
-#             iff.exitForm("CMSH");
-#             return true;
-#         }
-#         return false;
-#     }
-#     public static bool writeMultiple(Iff iff, Collider[] colliders, Transform origin = null)
-#     {
-#         iff.insertForm("CMPT");
-#         iff.insertForm("0000");
-#         iff.insertForm("CPST");
-#         iff.insertForm("0000");
-#         foreach(Collider c in colliders)
-#         {
-#             writeCollider(iff, c, origin);
-#         }
-#         iff.exitForm("0000");
-#         iff.exitForm("CPST");
-#         iff.exitForm("0000");
-#         iff.exitForm("CMPT");
-#         return true;
-#     }
-
-#     static bool writeNull(Iff iff, Transform origin = null)
-#     {
-#         iff.insertForm("NULL");
-#         Debug.LogWarning("Wrote NULL for extents because we didn't find anyw writable extents");
-#         iff.exitForm("NULL");
-#         return true;
-#     }
-# }
