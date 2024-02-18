@@ -144,9 +144,9 @@ def import_mgn( context,
     for i, vertex_weights in enumerate(mgn.vertex_weights):
         sum=0
         for weight in vertex_weights:
-            if sum + weight[1] > 1.0:
-                weight[1] = (1.0 - sum)
-                print(f"Capped bone weight contribution of: {i} {weight[0]} to {weight[1]}!")
+            #if sum + weight[1] > 1.0:
+            #    weight[1] = (1.0 - sum)
+            #    print(f"Capped bone weight contribution of: {i} {weight[0]} to {weight[1]}!")
             vgs[weight[0]].add([i], weight[1], 'ADD')
     
     scene_object.shape_key_add(name='Basis')

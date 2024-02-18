@@ -1845,7 +1845,7 @@ class SWGMesh(object):
         return True
             
     def write(self, filename):
-        iff = nsg_iff.IFF(initial_size=100000)
+        iff = nsg_iff.IFF(initial_size=512000)
         # - BEGIN MESH        
         iff.insertForm("MESH")
         iff.insertForm("0005")
@@ -2184,9 +2184,11 @@ class SWGMgn(object):
         while not iff.atEndOfForm():
             self.twdt[i] = [iff.read_uint32(), iff.read_float()]
             #print(f'Twdt: {i} ({str(self.twdt[i])})')
+            #print(f"TWDT[{i}] {self.twdt[i][0]} = {self.twdt[i][1]}")
             i += 1
         iff.exitChunk("TWDT")
 
+        j = 0
         i = 0
         p = 0
         self.vertex_weights = [None] * self.num_positions
@@ -2202,8 +2204,13 @@ class SWGMgn(object):
             # if sum != 1.0:
             #     print(f' *** WARN ***: Vertex Weight sum for vert: {p} != 1.0 : {sum}')
             self.vertex_weights[p] = these_weights
+            
+            # sorted_weights = sorted(these_weights, key=lambda x: x[0])
+            # for weight in sorted_weights:                
+            #     print(f"TWDT[{j}] {weight[0]} = {weight[1]}")
+            #     j+=1
         
-        self.normalize_vertex_weights(self.vertex_weights)
+        #self.normalize_vertex_weights(self.vertex_weights)
 
         #self.positions = list(zip(self.positions, self.vertex_weights))
 
@@ -2448,7 +2455,7 @@ class SWGMgn(object):
 
     def write(self):
         tris_with_no_facemap=[]
-        iff = nsg_iff.IFF(initial_size=10000)
+        iff = nsg_iff.IFF(initial_size=512000)
         print(f"Name: {iff.getCurrentName()} Length: {iff.getCurrentLength()}")
         iff.insertForm("SKMG")
         iff.insertForm("0004")
@@ -2492,10 +2499,14 @@ class SWGMgn(object):
         iff.exitChunk("TWHD")
         
         iff.insertChunk("TWDT")
+        i = 0
         for twdt in self.twdt:
-            for weight in twdt:
+            sorted_weights=sorted(twdt, key=lambda x: x[1], reverse=True)
+            for weight in sorted_weights:
                 iff.insert_uint32(weight[0])
                 iff.insertFloat(weight[1])
+                #print(f"TWDT[{i}] {weight[0]} = {weight[1]}")
+                i += 1
         iff.exitChunk("TWDT")
 
         iff.insertChunk("NORM")

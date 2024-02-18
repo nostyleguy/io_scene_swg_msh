@@ -180,6 +180,7 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
                             uv[1] = (1.0 - uv[1])
 
                         swg_v.texs.append(uv)
+                        #print(f"SPS {material.name} Vert {v.index} UV: {i} = {uv}")
 
                     if doDOT3:
                         loop = me.loops[l_index]                        

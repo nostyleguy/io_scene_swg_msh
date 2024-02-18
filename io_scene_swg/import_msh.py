@@ -161,6 +161,7 @@ def import_msh(context,
                 for uvi in range(0, num_uv_sets):
                     uv = vert.texs[uvi] 
                     uvs_by_depth[uvi][global_loop_index] = uv
+                    #print(f"SPS {sps.stripped_shader_name()}, Vert {global_loop_index} UV: {uvi} = {uv}")
 
                 global_loop_index += 1
 

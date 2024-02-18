@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (3, 0, 0),
+    "version": (3, 0, 1),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh, .mgn, .lod and .pob",

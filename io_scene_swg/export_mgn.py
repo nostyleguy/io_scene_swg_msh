@@ -79,7 +79,7 @@ def export_mgn(context,
         t_ln = array.array(data_types.ARRAY_FLOAT64, [0.0,]) * len(bm.loops) * 3
         uv_names = [uvlayer.name for uvlayer in bm.uv_layers]
         for name in uv_names:
-            print(f"Did tangents for UV map: {name}")
+            #print(f"Did tangents for UV map: {name}")
             bm.calc_tangents(uvmap=name)
 
 
@@ -94,7 +94,7 @@ def export_mgn(context,
         elif key.startswith("OZN_"):
             name=key.replace("OZN_","")
             mgn.occlusions.append([name, i, current_obj[key]])
-            print(f"Added occlusion {str(i)}: {name}")
+            #print(f"Added occlusion {str(i)}: {name}")
             i += 1
         elif key == "OCC_LAYER":
             mgn.occlusion_layer = current_obj[key]
@@ -247,7 +247,7 @@ def export_mgn(context,
             zone_name=face_map_names_by_index[n]
             converted_index=blender_tri_index_to_my_tri_index[i]       
             mgn.occlusion_zones[n][1].append(converted_index)
-            print(f"faces[{i}]: My Index: {converted_index} Name: {zone_name} Value {mesh_face_map.value} Blender Index: {n}")
+            #print(f"faces[{i}]: My Index: {converted_index} Name: {zone_name} Value {mesh_face_map.value} Blender Index: {n}")
     else:
         print(f"No Face maps on model!")
 

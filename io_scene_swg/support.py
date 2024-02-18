@@ -113,7 +113,6 @@ def configure_material_from_swg_shader(material, shader, root_dir):
             ma_wrap.specular_texture.image = spec_image
 
 def add_sphere(collection, collision, broadphase):
-    print(f"Add sphere...")
     sph = bpy.data.objects.new(name="Sphere", object_data=None)        
     sph.empty_display_type = "SPHERE"
     sph.location = Vector(convert_vector3([collision.center[0], collision.center[1], collision.center[2]]))
@@ -125,7 +124,6 @@ def add_sphere(collection, collision, broadphase):
         sph['broadphase'] = 1
 
 def add_box(collection, collision, broadphase):
-    print(f"Add box...")
     box = bpy.data.objects.new(name="Box", object_data=None)        
     box.empty_display_type = "CUBE"
     location = collision.getCenter()
@@ -141,7 +139,6 @@ def add_box(collection, collision, broadphase):
         box['broadphase'] = 1
 
 def add_cylinder(collection, collision, broadphase):
-    print(f"Add cylinder...")
     location = collision.base
     bpy.ops.mesh.primitive_cylinder_add(
         radius = 1, 
