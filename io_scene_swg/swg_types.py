@@ -80,7 +80,7 @@ class LmgFile(object):
         self.mgns = mgns
 
     def write(self):
-        iff = nsg_iff.IFF(initial_size=100000)      
+        iff = nsg_iff.IFF(initial_size=128000)      
         iff.insertForm("MLOD")
         iff.insertForm("0000")
 
@@ -102,7 +102,7 @@ class SatFile(object):
         self.skeletons = skeletons
 
     def write(self):
-        iff = nsg_iff.IFF(initial_size=100000)      
+        iff = nsg_iff.IFF(initial_size=128000)      
         iff.insertForm("SMAT")
         iff.insertForm("0003")
 
@@ -131,7 +131,7 @@ class AptFile(object):
         self.reference = reference
 
     def write(self):
-        iff = nsg_iff.IFF(initial_size=100000)      
+        iff = nsg_iff.IFF(initial_size=128000)      
         iff.insertForm("APT ")
         iff.insertForm("0000")
         iff.insertChunk("NAME")
@@ -318,7 +318,7 @@ class PobFile(object):
         self.crc = None
 
     def write(self, fullpath):
-        iff = nsg_iff.IFF(initial_size=100000)      
+        iff = nsg_iff.IFF(initial_size=128000)      
         iff.insertForm("PRTO")
         iff.insertForm("0004")
         iff.insertChunk("DATA")
@@ -765,7 +765,7 @@ class LodFile(object):
         return True
 
     def write(self, fullpath):
-        iff = nsg_iff.IFF(initial_size=100000)      
+        iff = nsg_iff.IFF(initial_size=128000)      
         iff.insertForm("DTLA")
         iff.insertForm("0008")
         
@@ -1052,7 +1052,7 @@ class FloorFile(object):
         return True
 
     def write(self):
-        iff = nsg_iff.IFF(initial_size=100000)
+        iff = nsg_iff.IFF(initial_size=128000)
         iff.insertForm("FLOR")
         iff.insertForm("0006")
 
@@ -1845,7 +1845,7 @@ class SWGMesh(object):
         return True
             
     def write(self, filename):
-        iff = nsg_iff.IFF(initial_size=512000)
+        iff = nsg_iff.IFF(initial_size=128000)
         # - BEGIN MESH        
         iff.insertForm("MESH")
         iff.insertForm("0005")
@@ -2455,7 +2455,7 @@ class SWGMgn(object):
 
     def write(self):
         tris_with_no_facemap=[]
-        iff = nsg_iff.IFF(initial_size=512000)
+        iff = nsg_iff.IFF(initial_size=128000)
         print(f"Name: {iff.getCurrentName()} Length: {iff.getCurrentLength()}")
         iff.insertForm("SKMG")
         iff.insertForm("0004")
