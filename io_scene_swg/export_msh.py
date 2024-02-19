@@ -114,6 +114,8 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
         print(f"Faces_by_material[{index}]: {len(faces_by_material[index])}")
     
     this_mat_index=0
+    total_tris=0
+    total_verts=0
     for mat_index, face_list in faces_by_material.items():
         try:
             material = obj.material_slots[mat_index].material
@@ -180,7 +182,8 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
                             uv[1] = (1.0 - uv[1])
 
                         swg_v.texs.append(uv)
-                        #print(f"SPS {material.name} Vert {v.index} UV: {i} = {uv}")
+                        #if abs(uv[0]) > 10 or abs(uv[1]) > 10:
+                        #print(f"SPS {this_mat_index-1} Vert {v.index} UV: {i} = {uv}")
 
                     if doDOT3:
                         loop = me.loops[l_index]                        
@@ -188,6 +191,7 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
                         swg_v.texs.append([ *tang, loop.bitangent_sign])
 
                     thisSPS.verts.append(swg_v)
+                    total_verts += 1
 
                 if p1 == None:
                     p1 = unique_verts[rounded]
@@ -196,6 +200,7 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
                 elif p3 == None:
                     p3 = unique_verts[rounded]
                     thisSPS.tris.append(swg_types.Triangle(p3, p2, p1))
+                    total_tris += 1
                     p1 = p2 = p3 = None        
             
         print(f"SPS {str(thisSPS.no)}: Unique Verts: {str(len(unique_verts))} UV Channels: {str(vertex_buffer_format.getNumberOfTextureCoordinateSets(thisSPS.flags))} Has flags {str(thisSPS.flags)}") 
@@ -211,7 +216,7 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
 
     newMsh.write(fullpath)
     now = time.time()
-    print(f"Successfully wrote: {fullpath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
+    print(f"total_tris: {total_tris} total_verts: {total_verts} Successfully wrote: {fullpath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
 
     return {'FINISHED'}
 

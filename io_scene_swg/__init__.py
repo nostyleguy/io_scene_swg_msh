@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (3, 0, 2),
+    "version": (3, 0, 3),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh, .mgn, .lod and .pob",
@@ -163,7 +163,7 @@ class ImportMSH(bpy.types.Operator, ImportHelper):
     remove_duplicate_verts: BoolProperty(
             name="Remove Duplicate Verts",
             description="Attempt to remove verts that are probably duplicates (within 0.0001 units of each other)",
-            default=False,
+            default=True,
             )
 
     files: CollectionProperty(
@@ -424,7 +424,7 @@ class ImportLOD(bpy.types.Operator, ImportHelper):
     remove_duplicate_verts: BoolProperty(
             name="Remove Duplicate Verts",
             description="Attempt to remove verts that are probably duplicates (within 0.0001 units of each other)",
-            default=False,
+            default=True,
             )
 
     files: CollectionProperty(
@@ -569,7 +569,7 @@ class ImportPOB(bpy.types.Operator, ImportHelper):
     remove_duplicate_verts: BoolProperty(
             name="Remove Duplicate Verts",
             description="Attempt to remove verts that are probably duplicates (within 0.0001 units of each other)",
-            default=False,
+            default=True,
             )
 
     files: CollectionProperty(

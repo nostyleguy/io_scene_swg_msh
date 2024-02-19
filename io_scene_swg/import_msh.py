@@ -161,7 +161,7 @@ def import_msh(context,
                 for uvi in range(0, num_uv_sets):
                     uv = vert.texs[uvi] 
                     uvs_by_depth[uvi][global_loop_index] = uv
-                    #print(f"SPS {sps.stripped_shader_name()}, Vert {global_loop_index} UV: {uvi} = {uv}")
+                    #print(f"SPS {index}, Vert {global_loop_index} UV: {uvi} = {Vector(uv)}")
 
                 global_loop_index += 1
 
@@ -187,14 +187,14 @@ def import_msh(context,
             uv_layer.data[loop_index].uv = [uv[0], (uv[1] if not flip_uv_vertical else (1.0 - uv[1]))]
 
     if remove_duplicate_verts:
-        print(f"Removing duplicate verts ...")
+        #print(f"Removing duplicate verts ...")
         bm = bmesh.new()
         bm.from_mesh(mesh)
         before = len(mesh.vertices)
         removed = bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
         bm.to_mesh(mesh)        
         after = len(mesh.vertices)            
-        print(f"SPS {index}: Removed: {before - after} verts")
+        print(f"Removed: {before - after} verts")
         bm.free()
 
     if any_sps_has_color0:

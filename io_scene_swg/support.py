@@ -149,8 +149,10 @@ def add_cylinder(collection, collision, broadphase):
     cyln.scale = Vector(convert_scale([collision.radius, collision.height, collision.radius]))
     collection.objects.link(cyln)
 
-    #if cyln in bpy.context.scene.collection.all_objects:
-    bpy.context.scene.collection.objects.unlink(cyln)
+    try:
+       bpy.context.scene.collection.objects.unlink(cyln)
+    except:
+        pass
 
     if broadphase:
        cyln['broadphase'] = 1
@@ -225,8 +227,10 @@ def create_extent_for_obj(obj):
         converted_scale = Vector(convert_scale(obj.scale))   
         radius = converted_scale[0]
         height = converted_scale[1]
-        base = converted_location - Vector([0, height / 2.0, 0])     
-        be = extents.CylinderExtent(base, radius, height)
+        #base = converted_location - Vector([0, height / 2.0, 0])     
+        #be = extents.CylinderExtent(base, radius, height)
+        base = converted_location - Vector([0, height, 0])     
+        be = extents.CylinderExtent(base, radius, height*2)
         return be
 
     elif obj.type == 'MESH':
