@@ -186,6 +186,27 @@ def import_msh(context,
         for loop_index, uv in uvs.items():
             uv_layer.data[loop_index].uv = [uv[0], (uv[1] if not flip_uv_vertical else (1.0 - uv[1]))]
 
+    
+
+    if any_sps_has_color0:
+        mesh.vertex_colors.new(name="color0")
+        color_layer = mesh.vertex_colors["color0"]
+        try:
+            for idx in range(0, len(color0)):
+                color_layer.data[idx].color = color0[idx]
+                c=color_layer.data[idx].color
+        except:
+            print(f"Warning! Color0 only has {len(color0)} but need {len(color_layer.data)}")
+
+    if any_sps_has_color1:
+        mesh.vertex_colors.new(name="color1")
+        color_layer = mesh.vertex_colors["color1"]
+        try:
+            for idx in range(0, len(color1)):
+                color_layer.data[idx].color = color1[idx] 
+        except:
+            print(f"Warning! Color1 only has {len(color1)} but need {len(color_layer.data)}")
+
     if remove_duplicate_verts:
         #print(f"Removing duplicate verts ...")
         bm = bmesh.new()
@@ -196,20 +217,7 @@ def import_msh(context,
         after = len(mesh.vertices)            
         print(f"Removed: {before - after} verts")
         bm.free()
-
-    if any_sps_has_color0:
-        mesh.vertex_colors.new(name="color0")
-        color_layer = mesh.vertex_colors["color0"]
-        for idx in range(0, len(color0)):
-            color_layer.data[idx].color = color0[idx]
-            c=color_layer.data[idx].color
-
-    if any_sps_has_color1:
-        mesh.vertex_colors.new(name="color1")
-        color_layer = mesh.vertex_colors["color1"]
-        for idx in range(0, len(color1)):
-            color_layer.data[idx].color = color1[idx] 
-
+        
     mesh.update() 
     mesh.validate()
 

@@ -89,7 +89,6 @@ def export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_child
         for grandchild in child.children:
             if grandchild.name.startswith("Portals_"):
                 for obj in grandchild.objects:
-                    print(f"2Creating portal from {obj.name}")
                     if (obj not in portalObjs) and (obj.type == 'MESH'):
                         idtl = support.obj_to_idtl(obj)
                         pobFile.portals.append(swg_types.Portal(idtl.verts, idtl.indexes))

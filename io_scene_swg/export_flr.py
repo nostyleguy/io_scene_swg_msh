@@ -182,14 +182,14 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
                     #print(f"FloorTri {t1.index} p1 ({t1.vertices[1]} = {floortVerts[1]} is in portal: {portalObj.name} tri {portalTri.index} at {p2InTri} Dist: {dist1}")
                     #print(f"FloorTri {t1.index} p2 ({t1.vertices[2]} = {floortVerts[2]} is in portal: {portalObj.name} tri {portalTri.index} at {p3InTri} Dist: {dist2}")
                     if dist0 and dist1:
-                        #print(f"   Intersection found: floorTri {t1.index}, portalMesh {portalObj.name}: tri {portalTri.index} portalId3")
+                        print(f"   Intersection found: floorTri {t1.index}, Edge: {ft.corner1} - {ft.corner2} portalMesh {portalObj.name}: tri {portalTri.index} portalId3 = {portalIndex}")
                         ft.portalId3 = portalIndex
                     if dist1 and dist2:
-                        #print(f"   Intersection found: floorTri {t1.index}, portalMesh {portalObj.name}: tri {portalTri.index} portalId2")
-                        ft.portalId3 = portalIndex
+                        print(f"   Intersection found: floorTri {t1.index}, Edge: {ft.corner2} - {ft.corner3} portalMesh {portalObj.name}: tri {portalTri.index} portalId2 = {portalIndex}")
+                        ft.portalId2 = portalIndex
                     if dist2 and dist0:
-                        #print(f"   Intersection found: floorTri {t1.index}, portalMesh {portalObj.name}: tri {portalTri.index} portalId1")
-                        ft.portalId3 = portalIndex
+                        print(f"   Intersection found: floorTri {t1.index}, Edge: {ft.corner3} - {ft.corner1} portalMesh {portalObj.name}: tri {portalTri.index} portalId1 = {portalIndex}")
+                        ft.portalId1 = portalIndex
 
         flr.tris.append(ft)
 
