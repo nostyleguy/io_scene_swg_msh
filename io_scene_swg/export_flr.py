@@ -100,6 +100,47 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
     for v in me.vertices:
         flr.verts.append(support.convert_vector3([v.co[0], v.co[1], v.co[2]]))
 
+    flr.tris = create_floor_triangles_from_mesh(current_obj, me, portal_objects)
+
+    # Mark fallthrough tris now that they're created:
+    for ft in flr.tris:
+        if face_maps_by_index != None:
+            ft.fallthrough = (face_maps_by_index[ft.index] == FALLTHROUGH_MAP_INDEX) 
+        else:
+            ft.fallthrough = False
+
+    pathGraph = swg_types.PathGraph()
+    flr.pathGraph = pathGraph
+    if len(support.getChildren(current_obj)) > 0:
+        # portals=[]
+        print(f"Should build PathGraph from {support.getChildren(current_obj)} children")
+        waypoints=[]
+        index=0
+        for child in support.getChildren(current_obj):
+            if child.name.startswith("CellWaypoint"):
+                node = swg_types.PathGraphNode()
+                node.index = index   
+                node.type = 1
+                node.radius = child['radius']
+                converted = Vector(support.convert_vector3(child.location))
+                node.position = [converted.x, converted.y, converted.z]
+                pathGraph.nodes.append(node)         
+                index += 1
+        
+        
+    flr.add_portal_nodes(globalPortalIndecies)
+    flr.make_waypoint_connections()
+    flr.prune_redundant_edges()
+    flr.add_portal_edges()    
+
+    flr.write()
+    now = time.time()
+    print(f"Successfully wrote: {fullpath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
+
+    return {'FINISHED'}, flr
+
+def create_floor_triangles_from_mesh(obj, me, portal_objects):
+    tris=[]
     edge_types={}
     for edge in me.edges:  
         reversed=list(edge.vertices)
@@ -117,6 +158,7 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
             edge_types[tuple(edge.vertices)] = swg_types.FloorTri.WallTop
             edge_types[tuple(reversed)] = swg_types.FloorTri.WallTop
 
+    usedPortals = []
     for t1 in me.polygons:
         if(len(t1.vertices) != 3):
             print(f"Error. Triangle {t1.index} has {len(t1.vertices)} vertices. Only triangles supported!")
@@ -149,12 +191,7 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
             if t1e3 in [t2e1, t2e2, t2e3]:
                 ft.nindex3 = t2.index
 
-        ft.normal = support.convert_vector3([t1.normal.x, t1.normal.y, t1.normal.z])
-
-        if face_maps_by_index != None:
-            ft.fallthrough = (face_maps_by_index[t1.index] == FALLTHROUGH_MAP_INDEX) 
-        else:
-            ft.fallthrough = False
+        ft.normal = support.convert_vector3([t1.normal.x, t1.normal.y, t1.normal.z])        
 
         for portalIndex, pair in enumerate(portal_objects):
             portalObj = pair[0]
@@ -182,44 +219,27 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
                     #print(f"FloorTri {t1.index} p1 ({t1.vertices[1]} = {floortVerts[1]} is in portal: {portalObj.name} tri {portalTri.index} at {p2InTri} Dist: {dist1}")
                     #print(f"FloorTri {t1.index} p2 ({t1.vertices[2]} = {floortVerts[2]} is in portal: {portalObj.name} tri {portalTri.index} at {p3InTri} Dist: {dist2}")
                     if dist0 and dist1:
-                        print(f"   Intersection found: floorTri {t1.index}, Edge: {ft.corner1} - {ft.corner2} portalMesh {portalObj.name}: tri {portalTri.index} portalId3 = {portalIndex}")
+                        print(f"   Intersection found: floorTri {t1.index}, Edge: {ft.corner1} - {ft.corner2} portalMesh {portalObj.name}: tri {portalTri.index} portalId3 = {pid}")
                         ft.portalId3 = portalIndex
+                        usedPortals.append(portalObj)
                     if dist1 and dist2:
-                        print(f"   Intersection found: floorTri {t1.index}, Edge: {ft.corner2} - {ft.corner3} portalMesh {portalObj.name}: tri {portalTri.index} portalId2 = {portalIndex}")
+                        print(f"   Intersection found: floorTri {t1.index}, Edge: {ft.corner2} - {ft.corner3} portalMesh {portalObj.name}: tri {portalTri.index} portalId2 = {pid}")
                         ft.portalId2 = portalIndex
+                        usedPortals.append(portalObj)
                     if dist2 and dist0:
-                        print(f"   Intersection found: floorTri {t1.index}, Edge: {ft.corner3} - {ft.corner1} portalMesh {portalObj.name}: tri {portalTri.index} portalId1 = {portalIndex}")
+                        print(f"   Intersection found: floorTri {t1.index}, Edge: {ft.corner3} - {ft.corner1} portalMesh {portalObj.name}: tri {portalTri.index} portalId1 = {pid}")
                         ft.portalId1 = portalIndex
+                        usedPortals.append(portalObj)
 
-        flr.tris.append(ft)
+        tris.append(ft)    
 
-    pathGraph = swg_types.PathGraph()
-    flr.pathGraph = pathGraph
-    if len(support.getChildren(current_obj)) > 0:
-        # portals=[]
-        print(f"Should build PathGraph from {support.getChildren(current_obj)} children")
-        waypoints=[]
-        index=0
-        for child in support.getChildren(current_obj):
-            if child.name.startswith("CellWaypoint"):
-                node = swg_types.PathGraphNode()
-                node.index = index   
-                node.type = 1
-                node.radius = child['radius']
-                converted = Vector(support.convert_vector3(child.location))
-                node.position = [converted.x, converted.y, converted.z]
-                pathGraph.nodes.append(node)         
-                index += 1
-        
-        
-    flr.add_portal_nodes(globalPortalIndecies)
-    flr.make_waypoint_connections()
-    flr.prune_redundant_edges()
-    flr.add_portal_edges()
+    unusedCount = 0
+    for portal in portal_objects:
+        if portal[0] not in usedPortals:
+            print(f"Warning: Didn't used portal: {portal[0].name}")
+            unusedCount += 1
     
+    if unusedCount == 0:
+        print(f"{obj.name}: all passsable portals were used!")
 
-    flr.write()
-    now = time.time()
-    print(f"Successfully wrote: {fullpath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
-
-    return {'FINISHED'}, flr
+    return tris

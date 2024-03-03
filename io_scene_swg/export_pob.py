@@ -162,7 +162,8 @@ def export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_child
 
             if flrObj != None:
                 floorFile=f'appearance/collision/{collection.name}_{name}_collision_floor0.flr'
-                result, flr = export_flr.export_one(f'{root}/{floorFile}', flrObj, thisCellsPortals, False)
+                passablePortals = [x for x in thisCellsPortals if is_portal_passable(x[0])]
+                result, flr = export_flr.export_one(f'{root}/{floorFile}', flrObj, passablePortals, False)
 
                 # After we export the flr, the pathgraph will have been updated properly, so find the avg location of its
                 # nodes for our building pathgraph later
@@ -202,7 +203,6 @@ def export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_child
                         if pi not in clockwise_by_portal:
                             clockwise_by_portal[pi] = cell_id
 
-                        passable = portalObj['passable'] if 'passable' in portalObj else False
                         doorstyle = None
                         doorHp = None
                         children = support.getChildren(portalObj)
@@ -211,7 +211,7 @@ def export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_child
                             doorstyle = ob['doorstyle']
                             doorHp = support.hardpoint_from_obj(ob)[0:12] # skip the last element, which is the hp name used for LODs
                             
-                        portalData.append(swg_types.PortalData(pi, True, passable, -1, doorstyle, doorHp))
+                        portalData.append(swg_types.PortalData(pi, True, is_portal_passable(portalObj), -1, doorstyle, doorHp))
 
             cell = swg_types.Cell(cellCol.name, portalData, referencePath, floorFile, collision, lightDatas)
             pobFile.cells.append(cell)
@@ -322,3 +322,11 @@ def get_global_portal_id(portalObjs, portal):
         if portal == p:
             return pid
     return None
+
+def is_portal_passable(obj):
+    if obj.type != 'MESH':
+        return False
+    elif 'passable' in obj:
+        return obj['passable'] == True
+    else:
+        return True

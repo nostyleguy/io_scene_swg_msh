@@ -227,10 +227,8 @@ def create_extent_for_obj(obj):
         converted_scale = Vector(convert_scale(obj.scale))   
         radius = converted_scale[0]
         height = converted_scale[1]
-        #base = converted_location - Vector([0, height / 2.0, 0])     
-        #be = extents.CylinderExtent(base, radius, height)
-        base = converted_location - Vector([0, height, 0])     
-        be = extents.CylinderExtent(base, radius, height*2)
+        base = converted_location - Vector([0, height/2, 0])     
+        be = extents.CylinderExtent(base, radius, height)
         return be
 
     elif obj.type == 'MESH':
