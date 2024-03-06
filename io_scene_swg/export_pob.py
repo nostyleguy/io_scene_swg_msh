@@ -194,8 +194,9 @@ def export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_child
                             if not pid in portal_connections:
                                 portal_connections[pid] = []
             else:
-                print(f"Error! cell {cell_id} ({cellCol.name}) has no floor!")
-                return {'status':"ERROR", 'message':f"Error! cell {cell_id} ({cellCol.name}) has no floor!"}
+                #print(f"Error! cell {cell_id} ({cellCol.name}) has no floor!")
+                #return {'status':"ERROR", 'message':f"Error! cell {cell_id} ({cellCol.name}) has no floor!"}
+                avg_of_path_nodes[cell_id] = Vector([0,0,0])
 
             for portal in thisCellsPortals:
                 for pi, portalObj in enumerate(portalObjs):

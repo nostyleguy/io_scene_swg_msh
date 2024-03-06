@@ -86,6 +86,9 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
     mesh_triangulate(me)    
     me.calc_normals_split()
 
+    for layer in me.vertex_colors:
+        print(f"Color layer: {layer.name}")
+
     t_ln = array.array(data_types.ARRAY_FLOAT64, (0.0,)) * len(me.loops) * 3
     me.loops.foreach_get("normal", t_ln)
     normals = list(map(list, zip(*[iter(t_ln)]*3)))   

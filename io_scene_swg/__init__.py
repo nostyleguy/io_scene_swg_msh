@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (3, 0, 5),
+    "version": (3, 0, 6),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh, .mgn, .lod and .pob",
@@ -1358,16 +1358,16 @@ class SWG_Create_POB(bpy.types.Operator):
 
         
         #r1
-        r1 = bpy.data.collections.new("Room1")
+        r1 = bpy.data.collections.new("room1")
         collection.children.link(r1)
 
-        child = bpy.data.collections.new("Collision_Room1")
+        child = bpy.data.collections.new("Collision_room1")
         r1.children.link(child)
 
-        child = bpy.data.collections.new("Lights_Room1")
+        child = bpy.data.collections.new("Lights_room1")
         r1.children.link(child)
 
-        child = bpy.data.collections.new("Portals_Room1")
+        child = bpy.data.collections.new("Portals_room1")
         r1.children.link(child)
 
         return {'FINISHED'}
@@ -1386,7 +1386,7 @@ class SWG_Create_POB_Room(bpy.types.Operator):
 
     def execute(self, context):        
         collection = bpy.context.view_layer.active_layer_collection.collection        
-        name=f'r{len(collection.children)}'
+        name=f'room{len(collection.children)}'
         r1 = bpy.data.collections.new(name)
         collection.children.link(r1)
         child = bpy.data.collections.new(f"Collision_{name}")

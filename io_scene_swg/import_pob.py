@@ -96,6 +96,7 @@ def load_new(context,
                 flip_uv_vertical=flip_uv_vertical,
                 remove_duplicate_verts=False,
                 )
+                mesh.name = f'Appearance_{cell.name}'
             elif referenceFilePath and referenceFilePath.endswith(".lod"):
                 result = import_lod.load_new(context,
                     referenceFilePath,
@@ -108,7 +109,7 @@ def load_new(context,
                 if result[0] == 'SUCCESS':
                     result[1].name = f'Appearance_{cell.name}'
                 else:
-                    print(f"Error. Erro while importing LOD: {appearance_path}")
+                    print(f"Error. Error while importing LOD: {appearance_path}")
                     return ('CANCELLED')
             else:
                 print(f"Couldn't find referenced file: {apt.reference}")
