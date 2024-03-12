@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (3, 0, 6),
+    "version": (3, 0, 7),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh, .mgn, .lod and .pob",
@@ -1467,6 +1467,7 @@ class SWGMgnMenu(bpy.types.Menu):
         layout.operator(SWG_Create_Sat_For_Mgn.bl_idname, text=SWG_Create_Sat_For_Mgn.bl_label)
         layout.operator(SWG_Swap_Bone_Names_To_Source.bl_idname, text= SWG_Swap_Bone_Names_To_Source.bl_label)
         layout.operator(SWG_Generate_Blends_From_Other.bl_idname, text=SWG_Generate_Blends_From_Other.bl_label)
+        layout.operator(SWG_Initialize_MGN_From_Existing.bl_idname, text=SWG_Initialize_MGN_From_Existing.bl_label)
 
 class SWGLodMenu(bpy.types.Menu):
     bl_label = "LOD (level of detail)"
