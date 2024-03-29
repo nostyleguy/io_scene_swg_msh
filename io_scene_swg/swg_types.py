@@ -2267,10 +2267,11 @@ class SWGMgn(object):
                 iff.exitChunk("INFO")
                 self.blends.append(blt)
 
-                iff.enterChunk("POSN")
-                while not iff.atEndOfForm():
-                    blt.positions.append( (iff.read_uint32(), (iff.read_float(), iff.read_float(), iff.read_float())))
-                iff.exitChunk("POSN")
+                if iff.getCurrentName() == "POSN":
+                    iff.enterChunk("POSN")
+                    while not iff.atEndOfForm():
+                        blt.positions.append( (iff.read_uint32(), (iff.read_float(), iff.read_float(), iff.read_float())))
+                    iff.exitChunk("POSN")
 
                 if iff.getCurrentName == "NORM":
                     iff.enterChunk("NORM")

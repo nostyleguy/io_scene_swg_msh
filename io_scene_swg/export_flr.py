@@ -191,7 +191,7 @@ def create_floor_triangles_from_mesh(obj, me, portal_objects):
             if t1e3 in [t2e1, t2e2, t2e3]:
                 ft.nindex3 = t2.index
 
-        ft.normal = support.convert_vector3([t1.normal.x, t1.normal.y, t1.normal.z])        
+        ft.normal = support.convert_vector3([-t1.normal.x, -t1.normal.y, -t1.normal.z])        
 
         for portalIndex, pair in enumerate(portal_objects):
             portalObj = pair[0]
