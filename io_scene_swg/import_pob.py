@@ -146,8 +146,9 @@ def load_new(context,
             portal_objs[portalData.id]['passable'] = portalData.passable
             if portalData.doorstyle != None:
                 if len(support.getChildren(portal_objs[portalData.id])) == 0:
-                    hpntadded = support.create_hardpoint_obj(f"{portal_objs[portalData.id].name}-door", portalData.doorhardpoint, collection = roomPortals, parent = portal_objs[portalData.id])
-                    hpntadded['doorstyle'] = portalData.doorstyle
+                    if portalData.doorhardpoint != None:
+                        hpntadded = support.create_hardpoint_obj(f"{portal_objs[portalData.id].name}-door", portalData.doorhardpoint, collection = roomPortals, parent = portal_objs[portalData.id])
+                        hpntadded['doorstyle'] = portalData.doorstyle
 
         # Lights:
         lightCol = bpy.data.collections.new(f"Lights_{cell.name}")

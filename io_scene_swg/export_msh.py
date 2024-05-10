@@ -162,7 +162,7 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
                 v = me.vertices[face.vertices[uv_index]]
                 normal = normals[l_index]
 
-                test_uv = uv_maps[0][l_index].uv
+                test_uv = uv_maps[0][l_index].uv.copy()
                 rounded = face.vertices[uv_index], veckey2d(normal, test_uv)
                 if rounded not in unique_verts:
                     unique_verts[rounded] = last_unique_vert_index
@@ -179,7 +179,7 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
                         swg_v.color1 = me.vertex_colors["color1"].data[l_index].color
 
                     for i in range(0, uvSets):
-                        uv = me.uv_layers[i].data[l_index].uv
+                        uv = me.uv_layers[i].data[l_index].uv.copy()
 
                         if flip_uv_vertical:
                             uv[1] = (1.0 - uv[1])
