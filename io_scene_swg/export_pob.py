@@ -121,6 +121,7 @@ def export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_child
                         result = export_as_lod(child, extract_dir, fullLodPath )
                 elif child.name.startswith("Collision_"):
                     collision = support.create_extents_from_collection(child)
+                    print(f"Cell: {cellCol.name} has collision collection: {child.name}")
                 elif child.name.startswith("Lights_"):
                     for obj in child.objects:
                         if obj.type == 'LIGHT':
@@ -159,6 +160,10 @@ def export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_child
                         result = export_as_msh(child, extract_dir, fullMshPath)
                 elif child.name.startswith("Floor_"):
                     flrObj = child
+
+            if referencePath == None:
+                print(f"ERROR: Can't proceed because cell: {cellCol.name} has no Appearance object!")
+                return {'status':'ERROR', 'message':f"ERROR: Can't proceed because cell: {cellCol.name} has no Appearance object!"}
 
             if flrObj != None:
                 floorFile=f'appearance/collision/{collection.name}_{name}_collision_floor0.flr'

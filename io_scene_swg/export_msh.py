@@ -60,8 +60,11 @@ def save(context,
     if len(objects) == 0:
         print(f"Nothing selected. Aborting!")
         return {'CANCELLED'}
+    else:
+        print(f"Objects to export: {len(objects)}")
 
-    for ob in objects:        
+    for ob in objects:
+        print(f"Exporting: {ob.name}")
         if ob.type != 'MESH':
             print(f"Skipping {ob.name} with type: {ob.type}")
             continue

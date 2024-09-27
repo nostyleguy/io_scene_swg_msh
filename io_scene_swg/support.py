@@ -42,6 +42,7 @@ def load_shared_image(path, root):
         for img in bpy.data.images: 
             if shortname == img.name:
                 image = img
+                print(f"Found image: shortname at {abs_path}. Already is: {img.name}. Has data? {img.has_data}")
                 break
     if image == None:
         temp = load_image(abs_path, ".") 

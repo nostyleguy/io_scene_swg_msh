@@ -23,7 +23,7 @@
 bl_info = {
     "name": "NSG SWG Tools",
     "author": "Nick Rafalski",
-    "version": (3, 0, 9),
+    "version": (3, 0, 10),
     "blender": (2, 81, 6),
     "location": "File > Import-Export",
     "description": "Import-Export SWG .msh, .mgn, .lod and .pob",
@@ -738,9 +738,11 @@ NOTE: If this option is disabled, you need to set the "SWG Client Extract Dir" p
         print(f"invoke with: {context.active_object.name}")     
         for slot in context.active_object.material_slots:
             mat = slot.material    
+            print(f"Looking for material: {mat.name}")
             path=f'shader/{mat.name}.sht'        
             real_shader_path = support.find_file(path,s)
             if real_shader_path:
+                print(f'..found it...')
                 shader = swg_types.SWGShader(real_shader_path)
                 support.configure_material_from_swg_shader(mat,shader, s)
             else:
@@ -1203,7 +1205,7 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
         return context.active_object != None
 
     def execute(self, context):
-        tmpFile= f"os.path.dirname(context.blend_data.filepath)/debugPathgraph.flr"
+        tmpFile= f"{os.path.dirname(context.blend_data.filepath)}/debugPathgraph.flr"
         objects = context.selected_objects
         floor=None
         for ob in objects:
