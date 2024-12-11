@@ -142,9 +142,10 @@ def export_mgn(context,
                     delta = kv.co - basis[j].co
                     #if delta[0] != 0 and delta[1] != 0 and delta[2] != 0:
                     blt.positions.append([j, [-delta[0], delta[2], -delta[1]]])
-                    blt.normals.append([j, [0,0,0]])
                     if do_tangents:
                         blt.dot3.append([j, [0,0,0]])
+                for n, norm in enumerate(reverse_normal_lookup):                    
+                    blt.normals.append([n, [0,0,0]])
                 mgn.blends.append(blt)
             
     face_index_pairs = [(face, index) for index, face in enumerate(bm.polygons)]
