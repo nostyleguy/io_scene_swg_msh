@@ -44,6 +44,54 @@ from bpy_extras.wm_utils.progress_report import (
     ProgressReportSubstep,
 )
 
+def get_parent_collections(collection):
+    """
+    Retrieves the parent collection(s) of a given collection.
+
+    Args:
+        collection: The collection to find the parent(s) of.
+
+    Returns:
+        A list of parent collections, or an empty list if no parent is found.
+    """
+    parent_collections = []
+    for parent in bpy.data.collections:
+        if collection.name in parent.children.keys():
+            parent_collections.append(parent)
+    return parent_collections
+
+# A collection is probably a cell if it has exactly 1 parent, and 
+# no grandparents (the Collision, LOD and Portals collections will have grandparents)
+def is_cell_collection(collection):
+    parents = get_parent_collections(collection)
+    if len(parents) != 1:
+        return False
+    
+    grandparents = get_parent_collections(parents[0])
+    if len(grandparents) != 0:
+        return False
+    
+    return True
+
+# A collection is probably a main POB if it has 0 parents
+def is_main_pob_collection(collection):
+    parents = get_parent_collections(collection)
+    if len(parents) != 0:
+        return False
+    
+    return True
+    
+
+
+def print_selected_collections():
+    ids = bpy.context.selected_ids
+    names = [o.name for o in ids]
+    print(names)
+
+def print_and_create_return_object(category, message):
+    print(message)
+    return {'status':category, 'message': message}
+
 def save(context,
          filepath,
          *,
@@ -51,17 +99,65 @@ def save(context,
          export_children=True,
          use_imported_crc=False
          ):
-    collection = bpy.context.view_layer.active_layer_collection.collection
-    if collection != None:
-        dirname = os.path.dirname(filepath)
-        fullpath = os.path.join(dirname, collection.name+".pob")
-        extract_dir=context.preferences.addons[__package__].preferences.swg_root
-        return export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_children, use_imported_crc)
-    else:
-        print(f"You must have an active Collection export a POB!")
-        return {'status':"ERROR", 'message':f"You must have an active Collection export a POB!"}
+    exporting_specific_cells_only = False
+    area  = next(area for area in bpy.context.window.screen.areas if area.type == 'OUTLINER')
 
-def export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_children, use_imported_crc):
+    with bpy.context.temp_override(
+        window=bpy.context.window,
+        area=area,
+        region=next(region for region in area.regions if region.type == 'WINDOW'),
+        screen=bpy.context.window.screen
+    ):
+        selected_collections = [id for id in bpy.context.selected_ids if id.bl_rna.identifier == 'Collection']
+
+    if len(selected_collections) == 0:
+        return print_and_create_return_object("ERROR", "Need to select either the root POB collection, or several cell collections to export! Aborting!")
+    
+    c = selected_collections[0]
+    pob = None
+    if is_cell_collection(c):
+        parents = get_parent_collections(c)
+
+        if (len(parents) != 1):
+            return print_and_create_return_object("ERROR", f"Can only export cells with 1 parent. {c.name} has {len(parents)}. Aborting!")
+        else: 
+            pob = parents[0]
+
+        exporting_specific_cells_only = True
+        for collection in selected_collections:
+            if not is_cell_collection(collection):
+                return print_and_create_return_object("ERROR", "All selected collections must represent cells! Aborting!")
+            else:
+                parents = get_parent_collections(collection)
+                if (len(parents) != 1):
+                    return print_and_create_return_object("ERROR", f"Can only export cells with 1 parent. {collection.name} has {len(parents)}. Aborting!")
+                else:
+                    parent = parents[0]
+                    if parent != pob:
+                        return print_and_create_return_object("ERROR", f"Can only export cells with the smae parent! Aborting!")
+    elif is_main_pob_collection(c):
+        pob = c
+    else:
+        return print_and_create_return_object("ERROR", f"Selected collection '{c.name}' is neither a main POB or a cell collection within a POB! Aborting!")
+
+    if exporting_specific_cells_only:
+        print(f"Exporting specific children: {[o.name for o in selected_collections]} with parent {pob.name}")
+    else:
+        print(f"Exporting entire POB: {pob.name}")
+
+    # End selection validation logic.
+    # By now, we have:
+    # * pob is the whole POB
+    # And either:
+    # 1) exporting_specific_cells_only is True with selected_collections containing the collections representing the cells to export 
+    # 2) exporting_specific_cells_only is False
+
+    dirname = os.path.dirname(filepath)
+    fullpath = os.path.join(dirname, pob.name+".pob")
+    extract_dir=context.preferences.addons[__package__].preferences.swg_root
+    return export_one(fullpath, extract_dir, pob, (selected_collections if exporting_specific_cells_only else None), flip_uv_vertical, export_children, use_imported_crc)
+
+def export_one(fullpath, extract_dir, collection, specific_cells_to_export, flip_uv_vertical, export_children, use_imported_crc):
     root = os.path.dirname(os.path.dirname(fullpath))
 
     pobFile = swg_types.PobFile(fullpath)
@@ -117,7 +213,7 @@ def export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_child
                     referencePath = f'appearance/lod/{collection.name}_{name}.lod'
                     fullLodPath = f'{root}/{referencePath}'
                     center_by_cell[cell_id] = export_lod.avg_vert_position_in_blender(child)
-                    if export_children:
+                    if export_children and (specific_cells_to_export == None or (cellCol in specific_cells_to_export)):
                         result = export_as_lod(child, extract_dir, fullLodPath )
                 elif child.name.startswith("Collision_"):
                     collision = support.create_extents_from_collection(child)
@@ -156,7 +252,7 @@ def export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_child
                     referencePath = f'appearance/mesh/{collection.name}_{name}_mesh_r{cell_id}.msh'
                     fullMshPath = f'{root}/{referencePath}'
                     center_by_cell[cell_id] = export_msh.avg_vert_position_in_blender(child)
-                    if export_children:
+                    if export_children and (specific_cells_to_export == None or (cellCol in specific_cells_to_export)):
                         result = export_as_msh(child, extract_dir, fullMshPath)
                 elif child.name.startswith("Floor_"):
                     flrObj = child
@@ -165,7 +261,7 @@ def export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_child
                 print(f"ERROR: Can't proceed because cell: {cellCol.name} has no Appearance object!")
                 return {'status':'ERROR', 'message':f"ERROR: Can't proceed because cell: {cellCol.name} has no Appearance object!"}
 
-            if flrObj != None:
+            if flrObj != None and (specific_cells_to_export == None or (cellCol in specific_cells_to_export)):
                 floorFile=f'appearance/collision/{collection.name}_{name}_collision_floor0.flr'
                 passablePortals = [x for x in thisCellsPortals if is_portal_passable(x[0])]
                 result, flr = export_flr.export_one(f'{root}/{floorFile}', flrObj, passablePortals, False)
@@ -221,84 +317,84 @@ def export_one(fullpath, extract_dir, collection, flip_uv_vertical, export_child
 
             cell = swg_types.Cell(cellCol.name, portalData, referencePath, floorFile, collision, lightDatas)
             pobFile.cells.append(cell)
+    if (specific_cells_to_export == None):
+        print(f"Processing connecting cells with portal_connections: {str(portal_connections)}")
+        print(f"clockwise_by_portal: {clockwise_by_portal}")
+        for cell_id, cell in enumerate(pobFile.cells):
+            for portal in cell.portals:
+                # print(f"Checking Cell: {cell_id} Portal: {portal.id}: ")
+                # clockwise = determine_if_portal_points_into_cell(portalObjs[portal.id], center_by_cell[cell_id])
+                for connecting_portal in portal_connections:
+                    if portal.id == connecting_portal:
+                        if cell_id in portal_connections[portal.id]:
+                            connected_cell=None
+                            for other_cell in portal_connections[portal.id]:
+                                if other_cell == cell_id:
+                                    continue
+                                connected_cell = other_cell
 
-    print(f"Processing connecting cells with portal_connections: {str(portal_connections)}")
-    print(f"clockwise_by_portal: {clockwise_by_portal}")
-    for cell_id, cell in enumerate(pobFile.cells):
-        for portal in cell.portals:
-            # print(f"Checking Cell: {cell_id} Portal: {portal.id}: ")
-            # clockwise = determine_if_portal_points_into_cell(portalObjs[portal.id], center_by_cell[cell_id])
-            for connecting_portal in portal_connections:
-                if portal.id == connecting_portal:
-                    if cell_id in portal_connections[portal.id]:
-                        connected_cell=None
-                        for other_cell in portal_connections[portal.id]:
-                            if other_cell == cell_id:
-                                continue
-                            connected_cell = other_cell
+                if connected_cell == None:
+                    print(f"Error. Can not find connecting room for Cell: {cell_id} Portal: {portal.id}")
+                    return {'status':"ERROR", 'message':f"Error. Can not find connecting room for Cell: {cell_id} Portal: {portal.id}"}
+                else:
+                    portal.connecting_cell = connected_cell
+                    print(f"Cell: {cell_id} Portal: {portal.id} leads to cell: {portal.connecting_cell}!")
 
-            if connected_cell == None:
-                print(f"Error. Can not find connecting room for Cell: {cell_id} Portal: {portal.id}")
-                return {'status':"ERROR", 'message':f"Error. Can not find connecting room for Cell: {cell_id} Portal: {portal.id}"}
-            else:
-                portal.connecting_cell = connected_cell
-                print(f"Cell: {cell_id} Portal: {portal.id} leads to cell: {portal.connecting_cell}!")
+                portal.clockwise = True if clockwise_by_portal[portal.id] == cell_id else False
 
-            portal.clockwise = True if clockwise_by_portal[portal.id] == cell_id else False
+        buildingPathGraphIndex = 0
+        buildingPathGraph = swg_types.PathGraph()
+        node_by_portal={}
+        for portal_id, portal in enumerate(pobFile.portals):
+            total = Vector()
+            for vert in portal.verts:
+                total += Vector(vert)
 
-    buildingPathGraphIndex = 0
-    buildingPathGraph = swg_types.PathGraph()
-    node_by_portal={}
-    for portal_id, portal in enumerate(pobFile.portals):
-        total = Vector()
-        for vert in portal.verts:
-            total += Vector(vert)
+            if len(portal.verts) > 0:
+                total /= len(portal.verts)
 
-        if len(portal.verts) > 0:
-            total /= len(portal.verts)
+            node = swg_types.PathGraphNode()
+            node.type = 5
 
-        node = swg_types.PathGraphNode()
-        node.type = 5
+            for portalData in pobFile.cells[0].portals:
+                if portal_id == portalData.id:
+                    node.type = 3
+                    break
 
-        for portalData in pobFile.cells[0].portals:
-            if portal_id == portalData.id:
-                node.type = 3
-                break
+            node.position = total
+            node.index = buildingPathGraphIndex
+            node.key = portal_id
+            node.radius = 0
+            buildingPathGraph.nodes.append(node)
+            buildingPathGraphIndex += 1
+            node_by_portal[portal_id] = node
 
-        node.position = total
-        node.index = buildingPathGraphIndex
-        node.key = portal_id
-        node.radius = 0
-        buildingPathGraph.nodes.append(node)
-        buildingPathGraphIndex += 1
-        node_by_portal[portal_id] = node
+        node_by_cell={}
+        for cell_id, cell in enumerate(pobFile.cells):
+            node = swg_types.PathGraphNode()
+            node.type = 4
+            node.position = avg_of_path_nodes[cell_id]
+            node.index = buildingPathGraphIndex
+            node.key = cell_id
+            node.radius = 0
+            buildingPathGraph.nodes.append(node)
+            buildingPathGraphIndex += 1
+            node_by_cell[cell_id] = node
 
-    node_by_cell={}
-    for cell_id, cell in enumerate(pobFile.cells):
-        node = swg_types.PathGraphNode()
-        node.type = 4
-        node.position = avg_of_path_nodes[cell_id]
-        node.index = buildingPathGraphIndex
-        node.key = cell_id
-        node.radius = 0
-        buildingPathGraph.nodes.append(node)
-        buildingPathGraphIndex += 1
-        node_by_cell[cell_id] = node
+            for portalData in cell.portals:
+                edge = swg_types.PathGraphEdge()
+                edge.indexA = node_by_cell[cell_id].index
+                edge.indexB = node_by_portal[portalData.id].index
+                buildingPathGraph.edges.append(edge)
 
-        for portalData in cell.portals:
-            edge = swg_types.PathGraphEdge()
-            edge.indexA = node_by_cell[cell_id].index
-            edge.indexB = node_by_portal[portalData.id].index
-            buildingPathGraph.edges.append(edge)
+                edge2 = swg_types.PathGraphEdge()
+                edge2.indexA = node_by_portal[portalData.id].index
+                edge2.indexB = node_by_cell[cell_id].index
+                buildingPathGraph.edges.append(edge2)
 
-            edge2 = swg_types.PathGraphEdge()
-            edge2.indexA = node_by_portal[portalData.id].index
-            edge2.indexB = node_by_cell[cell_id].index
-            buildingPathGraph.edges.append(edge2)
-
-    pobFile.pathGraph = buildingPathGraph
-    
-    pobFile.write(fullpath)
+        pobFile.pathGraph = buildingPathGraph
+        
+        pobFile.write(fullpath)
     now = time.time()
     print(f"Successfully wrote: {fullpath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
     return {'status':'FINISHED'}
