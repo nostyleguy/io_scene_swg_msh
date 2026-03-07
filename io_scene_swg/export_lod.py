@@ -49,12 +49,7 @@ def mesh_triangulate(me):
     bm.to_mesh(me)
     bm.free()
 
-def save(context,
-         filepath,
-         *,
-         flip_uv_vertical=False,
-         export_children=True,
-         ):
+def save(context, filepath, *, flip_uv_vertical=False, export_children=True):
     collection = bpy.context.view_layer.active_layer_collection.collection
     if collection != None:
         dirname = os.path.dirname(filepath)

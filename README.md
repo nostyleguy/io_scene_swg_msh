@@ -13,7 +13,7 @@ Should work with Blender 2.9+ and 3+
   - skt (Skeleton)
 - Generate .apt, .sat and .lmg files
 - Generate materials from .sht (shader) files
-- Generate .pob hierarchies
+- Generate .pob hierarchies and interior buildouts
 
 ### Recommended External Tools
 - [Sytner's Iff Editor (SIE)](https://modthegalaxy.com/index.php?resources/sie.1/)
@@ -112,7 +112,7 @@ Limitations:
    - If the bone has no children but it has a parent, the tail will continue along the trajectory of the parent for half of its length.
    - If the bone has no children and no parent, then it will move positively on the Y-axis at a distance of 0.05.
 - Rotation data in the skeleton is saved per joint and comprised of Pre-Multiply Rotations (RPRE), Bind Pose Rotations (BPRO), and Post-Multiply Rotations (RPST). These are a carryover from Maya, the modeling program uses to animate the characters in SWG.
-  - These rotations are only used to transform the joint positions in-game. Animations only use the final transformed joint translations, so baking these rotations into the bone head positions and setting them all to (0.0, 1.0, 0.0, 0.0) on export has no apparent effect. The exporter takes care of this automatically for you.
+  - The exporter is still unable to create recreate these rotations accurately. Consider exporting modified pre-existing skeletons or skeletons intended to reuse existing animations to be broken for now.
 - When exporting the skeleton, the the portion of the collection name prior to any `.` will be used, eg: a collection named `weegee.bunchofnumbers` will be exported as `weegee.skt`.
   - Armature names are ignored. A naming convention of `<skeleton name>_skt_l<detail level>` is recommended but not necessary.
   - Only deform bones are exported. This allows for the use of control bones like IK while animating (animations are not yet supported!).

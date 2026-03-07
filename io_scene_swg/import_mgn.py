@@ -32,10 +32,9 @@ def import_mgn( context,
                 *,      
                 global_matrix=None):
 
-    s=context.preferences.addons[__package__].preferences.swg_root
-    #s="E:/SWG_Legends_Dev/clientside_git_repo/"
+    swg_root = context.preferences.addons[__package__].preferences.swg_root
 
-    mgn = swg_types.SWGMgn(filepath, s)
+    mgn = swg_types.SWGMgn(filepath, swg_root)
     mgn.load()
 
     mesh_name = filepath.split('\\')[-1].split('.')[0]
@@ -59,8 +58,6 @@ def import_mgn( context,
     tris_flat = []
     uvs_flat = []
     for pid, psdt in enumerate(mgn.psdts):
-        # mat = bpy.data.materials.new(psdt.stripped_shader_name())
-        # mesh.materials.append(mat)  
         mat_name = psdt.stripped_shader_name()
         material = None
         
@@ -71,7 +68,8 @@ def import_mgn( context,
         if material == None:
             material = bpy.data.materials.new(psdt.stripped_shader_name()) 
         if psdt.real_shader: 
-           support.configure_material_from_swg_shader(material, psdt.real_shader, s) 
+           tex_to_png = context.preferences.addons[__package__].preferences.convert_tex_to_png
+           support.configure_material_from_swg_shader(material, psdt.real_shader, swg_root, tex_to_png) 
 
         mesh.materials.append(material)
 

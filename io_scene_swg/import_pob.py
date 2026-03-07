@@ -35,150 +35,151 @@ from . import swg_types
 from . import support
 
 def load_new(context,
-             filepath,
-             *,
-             flip_uv_vertical=False,
-             remove_duplicate_verts=True
-             ):  
+			 filepath,
+			 *,
+			 flip_uv_vertical=False,
+			 remove_duplicate_verts=True
+			 ):  
 
-    SWG_ROOT=context.preferences.addons[__package__].preferences.swg_root
-    print(f"Loading pob {filepath}")
-    pob = swg_types.PobFile(filepath)
-    pob.load()        
-        
-    name=os.path.basename(filepath).rsplit( ".", 1 )[ 0 ]
-    collection = bpy.data.collections.new(name)
-    bpy.context.scene.collection.children.link(collection)
+	SWG_ROOT=context.preferences.addons[__package__].preferences.swg_root
+	print(f"Loading pob {filepath}")
+	pob = swg_types.PobFile(filepath)
+	pob.load()		
+		
+	name=os.path.basename(filepath).rsplit( ".", 1 )[ 0 ]
+	collection = bpy.data.collections.new(name)
+	bpy.context.scene.collection.children.link(collection)
 
-    if pob.crc != None:
-        collection['crc'] = pob.crc
+	if pob.crc != None:
+		collection['ship'] = pob.ship
+		collection['crc'] = pob.crc
 
-    portal_objs={}
-    for cell in pob.cells:            
-        cell_collection = bpy.data.collections.new(cell.name)
+	portal_objs={}
+	for cell in pob.cells:			
+		cell_collection = bpy.data.collections.new(cell.name)
 
-        #cell_collection['can_see_world'] = cell.can_see_world
-        collection.children.link(cell_collection)            
+		cell_collection['can_see_parent'] = cell.can_see_parent
+		collection.children.link(cell_collection)
 
-        appearance_path = support.find_file(cell.appearance_file, SWG_ROOT)
-        if appearance_path and appearance_path.endswith(".msh"):
-            mesh = import_msh.import_msh(context,
-            appearance_path,
-            parent=cell_collection,
-            flip_uv_vertical=flip_uv_vertical,
-            remove_duplicate_verts=remove_duplicate_verts,
-            )
-            mesh.name = f'Appearance_{cell.name}'
-        elif appearance_path and appearance_path.endswith(".lod"):
-            result = import_lod.load_new(context,
-                appearance_path,
-                parent=cell_collection,
-                flip_uv_vertical=flip_uv_vertical,
-                remove_duplicate_verts=remove_duplicate_verts,
-                do_collision=False,
-                do_floor=False
-                )
-            if result[0] == 'SUCCESS':
-                result[1].name = f'Appearance_{cell.name}'
-            else:
-                print(f"Error. Erro while importing LOD: {appearance_path}")
-                return ('CANCELLED')
+		appearance_path = support.find_file(cell.appearance_file, SWG_ROOT)
+		if appearance_path and appearance_path.endswith(".msh"):
+			mesh = import_msh.import_msh(context,
+			appearance_path,
+			parent=cell_collection,
+			flip_uv_vertical=flip_uv_vertical,
+			remove_duplicate_verts=remove_duplicate_verts,
+			)
+			mesh.name = f'Appearance_{cell.name}'
+		elif appearance_path and appearance_path.endswith(".lod"):
+			result = import_lod.load_new(context,
+				appearance_path,
+				parent=cell_collection,
+				flip_uv_vertical=flip_uv_vertical,
+				remove_duplicate_verts=remove_duplicate_verts,
+				do_collision=False,
+				do_floor=False
+				)
+			if result[0] == 'SUCCESS':
+				result[1].name = f'Appearance_{cell.name}'
+			else:
+				print(f"Error. Erro while importing LOD: {appearance_path}")
+				return ('CANCELLED')
 
-        elif appearance_path and appearance_path.endswith(".apt"):
-            apt = swg_types.AptFile(appearance_path)
-            apt.load()
-            referenceFilePath = apt.get_reference_fullpath(SWG_ROOT)
+		elif appearance_path and appearance_path.endswith(".apt"):
+			apt = swg_types.AptFile(appearance_path)
+			apt.load()
+			referenceFilePath = apt.get_reference_fullpath(SWG_ROOT)
 
-            if referenceFilePath and referenceFilePath.endswith(".msh"):
-                mesh = import_msh.import_msh(context,
-                referenceFilePath,
-                parent=cell_collection,
-                flip_uv_vertical=flip_uv_vertical,
-                remove_duplicate_verts=False,
-                )
-                mesh.name = f'Appearance_{cell.name}'
-            elif referenceFilePath and referenceFilePath.endswith(".lod"):
-                result = import_lod.load_new(context,
-                    referenceFilePath,
-                    parent=cell_collection,
-                    flip_uv_vertical=flip_uv_vertical,
-                    remove_duplicate_verts=remove_duplicate_verts,
-                    do_collision=False,
-                    do_floor=False
-                    )
-                if result[0] == 'SUCCESS':
-                    result[1].name = f'Appearance_{cell.name}'
-                else:
-                    print(f"Error. Error while importing LOD: {appearance_path}")
-                    return ('CANCELLED')
-            else:
-                print(f"Couldn't find referenced file: {apt.reference}")
+			if referenceFilePath and referenceFilePath.endswith(".msh"):
+				mesh = import_msh.import_msh(context,
+				referenceFilePath,
+				parent=cell_collection,
+				flip_uv_vertical=flip_uv_vertical,
+				remove_duplicate_verts=False,
+				)
+				mesh.name = f'Appearance_{cell.name}'
+			elif referenceFilePath and referenceFilePath.endswith(".lod"):
+				result = import_lod.load_new(context,
+					referenceFilePath,
+					parent=cell_collection,
+					flip_uv_vertical=flip_uv_vertical,
+					remove_duplicate_verts=remove_duplicate_verts,
+					do_collision=False,
+					do_floor=False
+					)
+				if result[0] == 'SUCCESS':
+					result[1].name = f'Appearance_{cell.name}'
+				else:
+					print(f"Error. Error while importing LOD: {appearance_path}")
+					return ('CANCELLED')
+			else:
+				print(f"Couldn't find referenced file: {apt.reference}")
 
-        # Floor
-        #floor_collection = bpy.data.collections.new(f"Floor_{cell.name}")
-        #cell_collection.children.link(floor_collection)
-        if cell.floor_file:
-            floor_path = support.find_file(cell.floor_file, SWG_ROOT)
-            if floor_path:
-                print(f"Found floor_file: {cell.floor_file} at {floor_path}")
-                flr = import_flr.import_flr(context, floor_path, collection=cell_collection) 
-                flr.name = f'Floor_{cell.name}'
-            else:
-                print(f"Didn't find floor_file: {cell.floor_file}")
-            
-        # Collision:
-        collision = bpy.data.collections.new(f"Collision_{cell.name}")
-        cell_collection.children.link(collision)   
-        if cell.collision:
-            support.add_collision_to_collection(collision, cell.collision, False)
+		# Floor
+		#floor_collection = bpy.data.collections.new(f"Floor_{cell.name}")
+		#cell_collection.children.link(floor_collection)
+		if cell.floor_file:
+			floor_path = support.find_file(cell.floor_file, SWG_ROOT)
+			if floor_path:
+				print(f"Found floor_file: {cell.floor_file} at {floor_path}")
+				flr = import_flr.import_flr(context, floor_path, collection=cell_collection) 
+				flr.name = f'Floor_{cell.name}'
+			else:
+				print(f"Didn't find floor_file: {cell.floor_file}")
+			
+		# Collision:
+		collision = bpy.data.collections.new(f"Collision_{cell.name}")
+		cell_collection.children.link(collision)   
+		if cell.collision:
+			support.add_collision_to_collection(collision, cell.collision, False)
 
-        # Create pert-room portal collection and associate portal objects with it
-        roomPortals = bpy.data.collections.new(f"Portals_{cell.name}")
-        cell_collection.children.link(roomPortals)
-        for portalData in cell.portals:
-            if not portalData.id in portal_objs:
-                # We haven't created this portal object yet, create it 
-                portal_objs[portalData.id] = create_portal_number(pob, portalData.id, roomPortals)
-            else:
-                # We already have created it, just link
-                roomPortals.objects.link(portal_objs[portalData.id])
+		# Create pert-room portal collection and associate portal objects with it
+		roomPortals = bpy.data.collections.new(f"Portals_{cell.name}")
+		cell_collection.children.link(roomPortals)
+		for portalData in cell.portals:
+			if not portalData.id in portal_objs:
+				# We haven't created this portal object yet, create it 
+				portal_objs[portalData.id] = create_portal_number(pob, portalData.id, roomPortals)
+			else:
+				# We already have created it, just link
+				roomPortals.objects.link(portal_objs[portalData.id])
+			
+			portal_objs[portalData.id]['passable'] = portalData.passable
+			if portalData.doorstyle != None:
+				if len(support.getChildren(portal_objs[portalData.id])) == 0:
+					if portalData.doorhardpoint != None:
+						hpntadded = support.create_hardpoint_obj(f"{portal_objs[portalData.id].name}-door", portalData.doorhardpoint, collection = roomPortals, parent = portal_objs[portalData.id])
+						hpntadded['doorstyle'] = portalData.doorstyle
 
-            portal_objs[portalData.id]['passable'] = portalData.passable
-            if portalData.doorstyle != None:
-                if len(support.getChildren(portal_objs[portalData.id])) == 0:
-                    if portalData.doorhardpoint != None:
-                        hpntadded = support.create_hardpoint_obj(f"{portal_objs[portalData.id].name}-door", portalData.doorhardpoint, collection = roomPortals, parent = portal_objs[portalData.id])
-                        hpntadded['doorstyle'] = portalData.doorstyle
+		# Lights:
+		lightCol = bpy.data.collections.new(f"Lights_{cell.name}")
+		cell_collection.children.link(lightCol)
+		for lightData in cell.lights:
+			light = support.create_light(lightCol, lightData)
+				
+	# pgrf_collection = bpy.data.collections.new("PathGraph")
+	# collection.children.link(pgrf_collection)
+	# if pob.pathGraph != None:
+	#	 support.create_pathgraph(pgrf_collection, pob.pathGraph, None, True)
 
-        # Lights:
-        lightCol = bpy.data.collections.new(f"Lights_{cell.name}")
-        cell_collection.children.link(lightCol)
-        for lightData in cell.lights:
-            light = support.create_light(lightCol, lightData)
-                
-    # pgrf_collection = bpy.data.collections.new("PathGraph")
-    # collection.children.link(pgrf_collection)
-    # if pob.pathGraph != None:
-    #     support.create_pathgraph(pgrf_collection, pob.pathGraph, None, True)
-
-    return ('SUCCESS', collection)
+	return ('SUCCESS', collection)
 
 def create_portal_number(pob, p_ind, collection):
-    portal = pob.portals[p_ind]
-    mesh = bpy.data.meshes.new(name=f'p{p_ind}-mesh')
-    obj = bpy.data.objects.new(f'p{p_ind}', mesh) 
-    verts = []
-    edges = []
-    tris = []    
+	portal = pob.portals[p_ind]
+	mesh = bpy.data.meshes.new(name=f'p{p_ind}-mesh')
+	obj = bpy.data.objects.new(f'p{p_ind}', mesh)
+	verts = []
+	edges = []
+	tris = []
 
-    for ind, vert in enumerate(portal.verts):
-        verts.append(Vector(support.convert_vector3([vert.x, vert.y, vert.z])))
+	for ind, vert in enumerate(portal.verts):
+		verts.append(Vector(support.convert_vector3([vert.x, vert.y, vert.z])))
 
-    for tri in portal.tris:
-        tris.append([tri.p3, tri.p2, tri.p1])
+	for tri in portal.tris:
+		tris.append([tri.p3, tri.p2, tri.p1])
 
-    mesh.from_pydata(verts, edges, tris)        
-    mesh.update() 
-    mesh.validate()
-    collection.objects.link(obj)
-    return obj
+	mesh.from_pydata(verts, edges, tris)		
+	mesh.update() 
+	mesh.validate()
+	collection.objects.link(obj)
+	return obj

@@ -17,6 +17,9 @@ def export_lmg(context, filepath, collection, export_mgns = True, do_tangents = 
 
     dirname = os.path.dirname(filepath)
     extract_dir = context.preferences.addons[__package__].preferences.swg_root
+
+    skts_col = None
+    hardpoints_col = None
     
     mgns = []
     for obj in collection.all_objects:
