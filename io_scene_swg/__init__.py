@@ -59,6 +59,7 @@ else:
 	from . import support
 	from . import extents
 	from . import swg_types
+	from . import debug_flr
 	from . import nsg_iff
 	from . import vertex_buffer_format
 	from . import vector3D
@@ -1385,87 +1386,6 @@ class SWG_Write_Flr(bpy.types.Operator):
 		sfile = context.space_data
 		operator = sfile.active_operator
 
-class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
-	bl_idname = "object.swg_visualize_flr_pathgraph"
-	bl_label = "Visualize Floor Pathgraph"
-	bl_description = '''Visualizes how SWG will (probably) connect your CellWaypoints'''
-
-	@classmethod
-	def poll(cls, context):
-		return context.active_object != None
-
-	def execute(self, context):
-		tmpFile= f"{os.path.dirname(context.blend_data.filepath)}/debugPathgraph.flr"
-		objects = context.selected_objects
-		floor=None
-		for ob in objects:
-			if ob.type != 'MESH':
-				continue
-			else:
-				result, floor = export_flr.export_one(tmpFile, ob, [])
-				
-				if not 'FINISHED' in result:
-					return {'ERROR'}
-				else:
-					break
-
-		if floor == None:
-			print(f"Error! Couldn't export .flr from {ob.name}")
-			return {'ERROR'}
-
-		print(f"Visualizing pathgraph with {len(floor.pathGraph.nodes)} nodes and {len(floor.pathGraph.edges)} edges...")
-		if 'FINISHED' not in result:
-			return {'ERROR'}
-		else:
-			try:
-				col = bpy.data.collections["VisualizePathgraph"]
-			except KeyError:
-				col = bpy.data.collections.new("VisualizePathgraph")
-				bpy.context.scene.collection.children.link(col)
-
-			for obj in col.objects:
-					bpy.data.objects.remove(obj, do_unlink=True)
-			support.create_pathgraph(col, floor.pathGraph)
-
-		return {'FINISHED'}
- 
-	def draw(self, context):
-		pass
-
-class SWG_Debug_Portal_Edges(bpy.types.Operator):
-	bl_idname = "object.swg_debug_portal_edges"
-	bl_label = "Debug Portal Edges"
-	bl_description = '''Print info about which floor triangle edges currently would get marked as portals'''
-
-	@classmethod
-	def poll(cls, context):
-		return context.active_object != None
-
-	def execute(self, context):
-		#tmpFile= f"os.path.dirname(context.blend_data.filepath)/debugPathgraph.flr"
-		objects = context.selected_objects
-		floor=None
-		for obj in objects:
-			if obj.type != 'MESH' or not obj.name.startswith("Floor"):
-				print(f"Skipping non 'Floor_' selected object: {obj.name}")
-				continue
-			else:
-				for col in obj.users_collection:
-					for child in col.children:
-						if child.name.startswith("Portals"):
-							portal_objects = []
-							for pid, candidate in enumerate(child.objects):
-								if candidate.type != 'MESH' or not export_pob.is_portal_passable(candidate):
-									continue
-								portal_objects.append([candidate, pid])
-							print(f"{obj.name} looking for portals that intersect floor triangles...")
-							export_flr.create_floor_triangles_from_mesh(obj, obj.to_mesh(), portal_objects)		
-
-		return {'FINISHED'}
- 
-	def draw(self, context):
-		pass
-
 class SWG_Create_LOD(bpy.types.Operator):
 	bl_idname = "object.swg_create_lod"
 	bl_label = "Create a basic LOD hierachy"
@@ -1738,8 +1658,8 @@ class SWGFlrMenu(bpy.types.Menu):
 		layout = self.layout
 		#layout.operator(SWG_Load_Flr.bl_idname, text=SWG_Load_Flr.bl_label)
 		#layout.operator(SWG_Write_Flr.bl_idname, text=SWG_Write_Flr.bl_label)
-		layout.operator(SWG_Visualize_Floor_Pathgraph.bl_idname, text=SWG_Visualize_Floor_Pathgraph.bl_label)
-		layout.operator(SWG_Debug_Portal_Edges.bl_idname, text=SWG_Debug_Portal_Edges.bl_label)
+		layout.operator(debug_flr.SWG_Visualize_Floor_Pathgraph.bl_idname, text=debug_flr.SWG_Visualize_Floor_Pathgraph.bl_label)
+		layout.operator(debug_flr.SWG_Debug_Portal_Edges.bl_idname, text=debug_flr.SWG_Debug_Portal_Edges.bl_label)
 
 class SWGMgnMenu(bpy.types.Menu):
 	bl_label = "MGN (animated mesh)"
@@ -1828,8 +1748,8 @@ classes = (
 	SWG_Generate_Blends_From_Other,
 	SWG_Load_Flr,
 	SWG_Write_Flr,
-	SWG_Visualize_Floor_Pathgraph,
-	SWG_Debug_Portal_Edges,
+	debug_flr.SWG_Visualize_Floor_Pathgraph,
+	debug_flr.SWG_Debug_Portal_Edges,
 	SWG_Create_LOD,
 	SWG_Add_Distance_CP,
 	SWG_Create_POB,

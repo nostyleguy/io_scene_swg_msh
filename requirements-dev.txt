@@ -1,0 +1,6 @@
+# Development dependencies for IDE support (not needed at runtime).
+# Blender add-ons run inside Blender's embedded Python, so bpy/mathutils/bmesh
+# are provided by Blender itself. These stubs give Pylance/Pyright type info.
+#
+# Install with: pip install -r requirements-dev.txt
+fake-bpy-module-3.6

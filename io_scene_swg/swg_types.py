@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 from audioop import cross
+from enum import IntEnum
 import math
 from re import I
 from sys import maxsize
@@ -223,11 +224,30 @@ class AptFile(object):
 		else:
 			return None
 
+class PathNodeType(IntEnum):
+	# Cell graph
+	CellPortal           = 0
+	CellWaypoint         = 1
+	CellPOI              = 2
+	# Building graph
+	BuildingEntrance     = 3
+	BuildingCell         = 4
+	BuildingPortal       = 5
+	# City graph
+	CityBuildingEntrance = 6
+	CityWaypoint         = 7
+	CityPOI              = 8
+	CityBuilding         = 9
+	CityEntrance         = 10
+	# Cell part
+	BuildingCellPart     = 11
+	Invalid              = 12
+
 class PathGraphNode(object):
 	typeEnum=['CellPortal','CellWaypoint','CellPOI','BuildingEntrance','BuildingCell','BuildingPortal','CityBuildingEntrance','CityWaypoint','CityPOI','CityBuilding','CityEntrance','BuildingCellPart','Invalid']
 	def __init__(self):
 		self.position = []
-		self.type = 12 #Invalid
+		self.type = PathNodeType.Invalid
 		self.radius = 1
 		self.index = -1
 		self.id = -1
@@ -963,11 +983,14 @@ class IndexedTriangleList(object):
 		iff.exitForm("0000")
 		iff.exitForm("IDTL")
 		
-class FloorTri(object):
+class FloorEdgeType(IntEnum):
 	Uncrossable = 0
 	Crossable = 1
 	WallBase = 2
 	WallTop = 3
+	Invalid = 4
+
+class FloorTri(object):
 	__slots__ = ('corner1','corner2','corner3','index','nindex1','nindex2','nindex3','normal','edgeType1','edgeType2','edgeType3','fallthrough','partTag','portalId1','portalId2','portalId3')
 	def __init__(self):
 		self.corner1 = 0
@@ -982,19 +1005,19 @@ class FloorTri(object):
 		
 		self.normal = [0,0,0]
 		
-		self.edgeType1 = FloorTri.Uncrossable
-		self.edgeType2 = FloorTri.Uncrossable
-		self.edgeType3 = FloorTri.Uncrossable
+		self.edgeType1 = FloorEdgeType.Uncrossable
+		self.edgeType2 = FloorEdgeType.Uncrossable
+		self.edgeType3 = FloorEdgeType.Uncrossable
 		
 		self.fallthrough = False
 		
-		self.partTag = 0
+		self.partTag = -1
 		
 		self.portalId1 = -1
 		self.portalId2 = -1
 		self.portalId3 = -1
 
-	def read_0002(self, iff):
+	def _read_connected_tri(self, iff):
 		self.corner1 = iff.read_int32()
 		self.corner2 = iff.read_int32()
 		self.corner3 = iff.read_int32()
@@ -1005,13 +1028,34 @@ class FloorTri(object):
 		self.nindex2 = iff.read_int32()
 		self.nindex3 = iff.read_int32()
 
+	def read_0001(self, iff):
+		self._read_connected_tri(iff)
+
+		self.normal = iff.read_vector3()
+
+		crossable1 = iff.read_bool8()
+		crossable2 = iff.read_bool8()
+		crossable3 = iff.read_bool8()
+		self.edgeType1 = FloorEdgeType.Crossable if crossable1 else FloorEdgeType.Uncrossable
+		self.edgeType2 = FloorEdgeType.Crossable if crossable2 else FloorEdgeType.Uncrossable
+		self.edgeType3 = FloorEdgeType.Crossable if crossable3 else FloorEdgeType.Uncrossable
+
+		self.fallthrough = iff.read_bool8()
+
+		self.partTag = iff.read_int32()
+
+		self.portalId1 = iff.read_int32()
+		self.portalId2 = iff.read_int32()
+		self.portalId3 = iff.read_int32()
+
+	def read_0002(self, iff):
+		self._read_connected_tri(iff)
+
 		self.normal = iff.read_vector3()
 
 		self.edgeType1 = iff.read_uint8()
 		self.edgeType2 = iff.read_uint8()
 		self.edgeType3 = iff.read_uint8()
-
-		#print(f" edges: {self.edgeType1}, {self.edgeType2}, {self.edgeType3}")
 
 		self.fallthrough = iff.read_bool8()
 
@@ -1075,45 +1119,71 @@ class FloorFile(object):
 
 	def load(self):
 		iff = nsg_iff.IFF(filename=self.path)
-		iff.enterForm("FLOR")		
+		iff.enterForm("FLOR")
 		version = iff.getCurrentName()
-		if version in ["0006", "0005"]:
-			iff.enterForm(version)
-			
-			iff.enterChunk("VERT")
-			vertCount = iff.read_int32()
-			while not iff.atEndOfForm():
-				pos = iff.read_vector3()
-				self.verts.append(pos)
-			iff.exitChunk("VERT")
 
-			iff.enterChunk("TRIS")
-			triCount = iff.read_int32()
-			for i in range(0, triCount):
-				#print(f"Tri {i}:")
-				f = FloorTri()
-				f.read_0002(iff)
-				self.tris.append(f)
-			iff.exitChunk("TRIS")
-
-			if not iff.atEndOfForm() and iff.getCurrentName() == "BTRE":
-				iff.enterForm("BTRE")
-				iff.exitForm("BTRE")
-			
-			if not iff.atEndOfForm() and iff.getCurrentName() == "BEDG":
-				iff.enterChunk("BEDG")
-				iff.exitChunk("BEDG")
-			
-			if not iff.atEndOfForm() and iff.getCurrentName() == "PGRF":
-				self.pathGraph = PathGraph()
-				self.pathGraph.load(iff)
-
-			print(f"Verts: {len(self.verts)} Tris: {len(self.tris)}")
+		if version == "0006":
+			self._load_0006(iff)
+		elif version == "0005":
+			self._load_0005(iff)
 		else:
 			print(f"Unhandled FLR version: {version}")
 			return False
 
+		print(f"Verts: {len(self.verts)} Tris: {len(self.tris)}")
 		return True
+
+	def _load_0006(self, iff):
+		iff.enterForm("0006")
+
+		iff.enterChunk("VERT")
+		vertCount = iff.read_int32()
+		while not iff.atEndOfForm():
+			self.verts.append(iff.read_vector3())
+		iff.exitChunk("VERT")
+
+		iff.enterChunk("TRIS")
+		triCount = iff.read_int32()
+		for i in range(triCount):
+			f = FloorTri()
+			f.read_0002(iff)
+			self.tris.append(f)
+		iff.exitChunk("TRIS")
+
+		self._load_tail(iff)
+		iff.exitForm("0006")
+
+	def _load_0005(self, iff):
+		iff.enterForm("0005")
+
+		iff.enterChunk("VERT")
+		while not iff.atEndOfForm():
+			self.verts.append(iff.read_vector3())
+		iff.exitChunk("VERT")
+
+		iff.enterChunk("TRIS")
+		while not iff.atEndOfForm():
+			f = FloorTri()
+			f.read_0001(iff)
+			self.tris.append(f)
+		iff.exitChunk("TRIS")
+
+		self._load_tail(iff)
+		iff.exitForm("0005")
+
+	def _load_tail(self, iff):
+		"""Read optional BTRE, BEDG, and PGRF sections."""
+		if not iff.atEndOfForm() and iff.getCurrentName() == "BTRE":
+			iff.enterForm("BTRE")
+			iff.exitForm("BTRE")
+
+		if not iff.atEndOfForm() and iff.getCurrentName() == "BEDG":
+			iff.enterChunk("BEDG")
+			iff.exitChunk("BEDG")
+
+		if not iff.atEndOfForm() and iff.getCurrentName() == "PGRF":
+			self.pathGraph = PathGraph()
+			self.pathGraph.load(iff)
 
 	def write(self):
 		iff = nsg_iff.IFF(initial_size=512000)
@@ -1132,23 +1202,29 @@ class FloorFile(object):
 			t.write_0002(iff)
 		iff.exitChunk("TRIS")
 
+		# Collect border edges, excluding WallTop (matches C++ FloorMesh::write)
 		borderEdges = []
 		for index, tri in enumerate(self.tris):
-			if tri.nindex1 == -1:
-				borderEdges.append(PathEdge(index, 0, (tri.edgeType1 != FloorTri.Uncrossable)))
-			if tri.nindex2 == -1:
-				borderEdges.append(PathEdge(index, 1, (tri.edgeType2 != FloorTri.Uncrossable)))
-			if tri.nindex3 == -1:
-				borderEdges.append(PathEdge(index, 2, (tri.edgeType1 != FloorTri.Uncrossable)))
-		iff.insertChunk("BEDG")
-		iff.insert_int32(len(borderEdges))
-		for be in borderEdges:
-			be.write(iff)
-		iff.exitChunk("BEDG")
+			for nindex, edge_id, edge_type in [
+				(tri.nindex1, 0, tri.edgeType1),
+				(tri.nindex2, 1, tri.edgeType2),
+				(tri.nindex3, 2, tri.edgeType3),
+			]:
+				if nindex == -1 and edge_type != FloorEdgeType.WallTop:
+					borderEdges.append(PathEdge(index, edge_id, edge_type != FloorEdgeType.Uncrossable))
 
-		if self.pathGraph != None:
+		if borderEdges:
+			iff.insertChunk("BEDG")
+			iff.insert_int32(len(borderEdges))
+			for be in borderEdges:
+				be.write(iff)
+			iff.exitChunk("BEDG")
+
+		if self.pathGraph is not None:
 			self.pathGraph.write(iff)
 
+		iff.exitForm("0006")
+		iff.exitForm("FLOR")
 		iff.write(self.path)
 
 	def do_nodes_connect(self, nodeA, nodeB):
@@ -1193,11 +1269,11 @@ class FloorFile(object):
 
 		for ti, tri in enumerate(self.tris):
 			corners = [Vector(self.verts[i]) for i in [tri.corner1, tri.corner2, tri.corner3]]
-			if self.do_lines_intersect(resultA, resultB, corners[0], corners[1]) and (tri.edgeType1 == FloorTri.Uncrossable):
+			if self.do_lines_intersect(resultA, resultB, corners[0], corners[1]) and (tri.edgeType1 == FloorEdgeType.Uncrossable):
 				return False
-			if self.do_lines_intersect(resultA, resultB, corners[1], corners[2]) and (tri.edgeType2 == FloorTri.Uncrossable):
+			if self.do_lines_intersect(resultA, resultB, corners[1], corners[2]) and (tri.edgeType2 == FloorEdgeType.Uncrossable):
 				return False
-			if self.do_lines_intersect(resultA, resultB, corners[2], corners[0]) and (tri.edgeType3 == FloorTri.Uncrossable):
+			if self.do_lines_intersect(resultA, resultB, corners[2], corners[0]) and (tri.edgeType3 == FloorEdgeType.Uncrossable):
 				return False
 
 		return True
