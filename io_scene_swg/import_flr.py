@@ -26,7 +26,7 @@ import bmesh
 from mathutils import Vector
 
 from .swg_types import FloorEdgeType, FloorFile
-from . import support
+from .support import convert_vector3, create_pathgraph
 
 def import_flr(context, filepath, collection=None):
     flr = FloorFile(filepath)
@@ -46,7 +46,7 @@ def import_flr(context, filepath, collection=None):
     edge_types = {}
 
     for vert in flr.verts:
-        verts.append(Vector(support.convert_vector3([vert[0], vert[1], vert[2]])))
+        verts.append(Vector(convert_vector3([vert[0], vert[1], vert[2]])))
 
     for tri in flr.tris:
         tris.append([tri.corner1, tri.corner3, tri.corner2])
@@ -86,6 +86,6 @@ def import_flr(context, filepath, collection=None):
     bm.free()
 
     if flr.pathGraph is not None:
-        support.create_pathgraph(collection, flr.pathGraph, obj, True)
+        create_pathgraph(collection, flr.pathGraph, obj, True)
 
     return obj

@@ -22,10 +22,10 @@
 
 import os
 import bpy
-from . import support
+from .support import convert_vector3
 from .swg_types import FloorEdgeType, PathNodeType
-from . import export_flr
-from . import export_pob
+from .export_flr import export_one, create_floor_triangles_from_mesh
+from .export_pob import is_portal_passable
 
 
 def _get_builtin_shader(name, fallback):
@@ -66,7 +66,7 @@ def _gather_portal_objects(obj):
 			if not child.name.startswith("Portals"):
 				continue
 			for pid, candidate in enumerate(child.objects):
-				if candidate.type != 'MESH' or not export_pob.is_portal_passable(candidate):
+				if candidate.type != 'MESH' or not is_portal_passable(candidate):
 					continue
 				portal_objects.append([candidate, pid])
 	return portal_objects
@@ -148,7 +148,7 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 				continue
 
 			portal_objects = _gather_portal_objects(ob)
-			result, floor = export_flr.export_one(tmpFile, ob, portal_objects)
+			result, floor = export_one(tmpFile, ob, portal_objects)
 			if 'FINISHED' not in result:
 				self.report({'ERROR'}, f"Failed to export .flr from {ob.name}")
 				continue
@@ -159,7 +159,7 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 			# Track offset so edge indices are correct per-floor
 			node_offset = len(all_node_points)
 			for node in pgrf.nodes:
-				pos = tuple(support.convert_vector3(node.position))
+				pos = tuple(convert_vector3(node.position))
 				all_node_points.append(pos)
 				all_node_colors.append(self._type_colors.get(node.type, self._default_color))
 
@@ -256,7 +256,7 @@ class SWG_Debug_Portal_Edges(bpy.types.Operator):
 
 			portal_objects = _gather_portal_objects(obj)
 			me = obj.to_mesh()
-			result = export_flr.create_floor_triangles_from_mesh(obj, me, portal_objects)
+			result = create_floor_triangles_from_mesh(obj, me, portal_objects)
 			if result is None:
 				self.report({'ERROR'}, f"{obj.name} has non-triangle polygons, cannot debug portal edges")
 				continue

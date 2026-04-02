@@ -23,9 +23,8 @@
 import os
 import time
 import math
-from . import swg_types
-from .swg_types import FloorEdgeType, PathNodeType
-from . import support
+from .swg_types import FloorEdgeType, FloorFile, FloorTri, PathGraph, PathGraphNode, PathNodeType
+from .support import convert_vector3, getChildren
 from mathutils import Vector
 
 def export_flr(context, filepath):
@@ -59,7 +58,7 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
     if not os.path.exists(os.path.dirname(fullpath)):
         os.makedirs(os.path.dirname(fullpath))
 
-    flr = swg_types.FloorFile(fullpath)
+    flr = FloorFile(fullpath)
 
     me = current_obj.to_mesh()
 
@@ -79,7 +78,7 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
         face_maps_by_index = [m_face_map.value for m_face_map in current_obj.data.face_maps.active.data]
 
     for v in me.vertices:
-        flr.verts.append(support.convert_vector3([v.co[0], v.co[1], v.co[2]]))
+        flr.verts.append(convert_vector3([v.co[0], v.co[1], v.co[2]]))
 
     flr.tris = create_floor_triangles_from_mesh(current_obj, me, portal_objects)
     if flr.tris is None:
@@ -92,19 +91,19 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
         else:
             ft.fallthrough = False
 
-    pathGraph = swg_types.PathGraph()
+    pathGraph = PathGraph()
     flr.pathGraph = pathGraph
-    children = support.getChildren(current_obj)
+    children = getChildren(current_obj)
     if children:
         print(f"Should build PathGraph from {children} children")
         index = 0
         for child in children:
             if child.name.startswith("CellWaypoint"):
-                node = swg_types.PathGraphNode()
+                node = PathGraphNode()
                 node.index = index
                 node.type = PathNodeType.CellWaypoint
                 node.radius = child['radius']
-                converted = Vector(support.convert_vector3(child.location))
+                converted = Vector(convert_vector3(child.location))
                 node.position = [converted.x, converted.y, converted.z]
                 pathGraph.nodes.append(node)
                 index += 1
@@ -239,7 +238,7 @@ def create_floor_triangles_from_mesh(obj, me, portal_objects):
             print(f"Error. Triangle {t1.index} has {len(t1.vertices)} vertices. Only triangles supported!")
             return None
 
-        ft = swg_types.FloorTri()
+        ft = FloorTri()
         ft.index = t1.index
         ft.corner1 = t1.vertices[0]
         ft.corner2 = t1.vertices[2]
@@ -260,7 +259,7 @@ def create_floor_triangles_from_mesh(obj, me, portal_objects):
                     setattr(ft, attr, tri_idx)
                     break
 
-        ft.normal = support.convert_vector3([-t1.normal.x, -t1.normal.y, -t1.normal.z])        
+        ft.normal = convert_vector3([-t1.normal.x, -t1.normal.y, -t1.normal.z])        
 
         # For each boundary edge, test against all portal polygons using
         # the same 3-test approach as the engine's matchSegmentToPoly:
