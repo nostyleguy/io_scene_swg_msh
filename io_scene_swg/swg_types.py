@@ -1053,9 +1053,9 @@ class FloorTri(object):
 
 		self.normal = iff.read_vector3()
 
-		self.edgeType1 = iff.read_uint8()
-		self.edgeType2 = iff.read_uint8()
-		self.edgeType3 = iff.read_uint8()
+		self.edgeType1 = FloorEdgeType(iff.read_uint8())
+		self.edgeType2 = FloorEdgeType(iff.read_uint8())
+		self.edgeType3 = FloorEdgeType(iff.read_uint8())
 
 		self.fallthrough = iff.read_bool8()
 
@@ -1237,10 +1237,10 @@ class FloorFile(object):
 			corners = [Vector(self.verts[i]) for i in [triA.corner1, triA.corner2, triA.corner3]]
 			pointA = Vector(nodeA.position)
 			resultA = mathutils.geometry.intersect_point_tri(pointA, corners[0], corners[1], corners[2])
-			if resultA != None:
+			if resultA is not None:
 				distA = (resultA - pointA).length
 				#print(f"Node {nodeA.index} at {nodeA.position} is above tri: {ti} with corners ({self.verts[tri.corner1]}, {self.verts[tri.corner2]}, {self.verts[tri.corner3]} Result: {resultA}) Dist: {distA}")
-				if resultA > 0.1:
+				if distA > 0.1:
 					resultA = None
 				else:
 					#print(f"Node {nodeA.index} at {nodeA.position} is above tri: {tiA} with corners ({self.verts[triA.corner1]}, {self.verts[triA.corner2]}, {self.verts[triA.corner3]} Result: {resultA}) Dist: {distA}")
@@ -1250,7 +1250,7 @@ class FloorFile(object):
 			cornersB = [Vector(self.verts[i]) for i in [triB.corner1, triB.corner2, triB.corner3]]
 			pointB = Vector(nodeB.position)
 			resultB = mathutils.geometry.intersect_point_tri(pointB, cornersB[0], cornersB[1], cornersB[2])
-			if resultB != None:
+			if resultB is not None:
 				distB = (resultB - pointB).length
 				#print(f"Node {nodeB.index} at {nodeB.position} is above tri: {ti} with corners ({self.verts[tri.corner1]}, {self.verts[tri.corner2]}, {self.verts[tri.corner3]}) Result: {resultB} Dist: {distB}")
 				if distB > 0.1:
@@ -1259,7 +1259,7 @@ class FloorFile(object):
 					#print(f"Node {nodeB.index} at {nodeB.position} is above tri: {tiB} with corners ({self.verts[triB.corner1]}, {self.verts[triB.corner2]}, {self.verts[triB.corner3]}) Result: {resultB} Dist: {distB}")
 					break
 
-		if (resultA == None) or (resultB == None):
+		if (resultA is None) or (resultB is None):
 			#print(f"One of the nodes at {nodeA.position} or {nodeB.position} are't on a floor triangle! Skipping!")
 			return False
 		else:

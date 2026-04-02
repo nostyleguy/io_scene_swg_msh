@@ -97,6 +97,8 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 	bl_label = "Visualize Floor Pathgraph"
 	bl_description = '''Visualize how SWG will (probably) connect your CellWaypoints (ESC to dismiss)'''
 
+	# Singleton overlay state — shared across instances so only one overlay
+	# is active at a time and the draw callback can access the data.
 	_handle = None
 	_edge_verts = []
 	_node_points = []
@@ -219,6 +221,8 @@ class SWG_Debug_Portal_Edges(bpy.types.Operator):
 	bl_label = "Debug Portal Edges"
 	bl_description = '''Visualize which floor triangle edges would get marked as portals (ESC to dismiss)'''
 
+	# Singleton overlay state — shared across instances so only one overlay
+	# is active at a time and the draw callback can access the data.
 	_handle = None
 	_draw_groups = []
 

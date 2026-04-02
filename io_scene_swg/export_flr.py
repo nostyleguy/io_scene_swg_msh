@@ -204,8 +204,8 @@ def _match_segment_to_poly(a, b, poly_verts):
     return False
 
 def create_floor_triangles_from_mesh(obj, me, portal_objects):
-    tris=[]
-    edge_types={}
+    tris = []
+    edge_types = {}
     for edge in me.edges:
         key = frozenset(edge.vertices)
         edge_types[key] = FloorEdgeType.Crossable
