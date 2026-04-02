@@ -139,7 +139,10 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 
 		tmpFile = os.path.join(os.path.dirname(context.blend_data.filepath), "debugPathgraph.flr")
 		objects = context.selected_objects
-		floor = None
+		all_node_points = []
+		all_node_colors = []
+		all_edge_verts = []
+
 		for ob in objects:
 			if ob.type != 'MESH':
 				continue
@@ -148,33 +151,30 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 			result, floor = export_flr.export_one(tmpFile, ob, portal_objects)
 			if 'FINISHED' not in result:
 				self.report({'ERROR'}, f"Failed to export .flr from {ob.name}")
-				return {'CANCELLED'}
-			break
+				continue
 
-		if floor is None:
-			self.report({'ERROR'}, "No mesh object selected")
+			pgrf = floor.pathGraph
+
+			# Convert node positions (SWG coords -> Blender coords)
+			# Track offset so edge indices are correct per-floor
+			node_offset = len(all_node_points)
+			for node in pgrf.nodes:
+				pos = tuple(support.convert_vector3(node.position))
+				all_node_points.append(pos)
+				all_node_colors.append(self._type_colors.get(node.type, self._default_color))
+
+			# Build edge line segments
+			for edge in pgrf.edges:
+				all_edge_verts.append(all_node_points[node_offset + edge.indexA])
+				all_edge_verts.append(all_node_points[node_offset + edge.indexB])
+
+		if not all_node_points:
+			self.report({'WARNING'}, "No floor meshes found to visualize")
 			return {'CANCELLED'}
 
-		pgrf = floor.pathGraph
-		self.report({'INFO'}, f"Pathgraph: {len(pgrf.nodes)} nodes, {len(pgrf.edges)} edges")
-
-		# Convert node positions (SWG coords -> Blender coords)
-		node_points = []
-		node_colors = []
-		for node in pgrf.nodes:
-			pos = tuple(support.convert_vector3(node.position))
-			node_points.append(pos)
-			node_colors.append(self._type_colors.get(node.type, self._default_color))
-
-		# Build edge line segments
-		edge_verts = []
-		for edge in pgrf.edges:
-			edge_verts.append(node_points[edge.indexA])
-			edge_verts.append(node_points[edge.indexB])
-
-		cls._edge_verts = edge_verts
-		cls._node_points = node_points
-		cls._node_colors = node_colors
+		cls._edge_verts = all_edge_verts
+		cls._node_points = all_node_points
+		cls._node_colors = all_node_colors
 		cls._handle = bpy.types.SpaceView3D.draw_handler_add(
 			cls._draw_callback, (), 'WINDOW', 'POST_VIEW'
 		)
