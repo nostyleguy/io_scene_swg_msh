@@ -1198,14 +1198,13 @@ class PathEdge(object):
 
 class FloorFile(object):
 
-	__slots__ = ('path', 'verts', 'tris', 'pathGraph', '_node_projections', '_uncrossable_segments')
+	__slots__ = ('path', 'verts', 'tris', 'pathGraph', '_node_triangles')
 	def __init__(self, path):
 		self.path = path
 		self.verts = []
 		self.tris = []
 		self.pathGraph = None
-		self._node_projections = None
-		self._uncrossable_segments = None
+		self._node_triangles = None
 
 	def __str__(self):
 		return f"Path: {self.path}"
@@ -1329,71 +1328,126 @@ class FloorFile(object):
 		iff.write(self.path)
 
 	def prepare_connectivity(self):
-		"""Pre-compute node floor projections and uncrossable edge segments.
+		"""Locate which floor triangle each pathgraph node lies on.
 		Call once before make_waypoint_connections / add_portal_edges."""
 		if self.pathGraph is None:
 			print(f"Error! Asked to prepare_connectivity without first assigning pathGraph")
 			return
-		# Project every pathgraph node onto the floor
-		self._node_projections = {}
+		self._node_triangles = {}
 		for node in self.pathGraph.nodes:
-			point = Vector(node.position)
-			projected = None
-			for tri in self.tris:
-				corners = [Vector(self.verts[i]) for i in [tri.corner1, tri.corner2, tri.corner3]]
-				result = mathutils.geometry.intersect_point_tri(point, corners[0], corners[1], corners[2])
-				if result is not None and (result - point).length <= 0.1:
-					projected = result
-					break
-			self._node_projections[node.index] = projected
+			self._node_triangles[node.index] = self._find_triangle(node.position)
 
-		# Collect unique uncrossable edge segments
-		self._uncrossable_segments = []
-		seen_edges = set()
-		for tri in self.tris:
-			corners = [Vector(self.verts[i]) for i in [tri.corner1, tri.corner2, tri.corner3]]
-			for ci, cj, etype, a, b in [
-				(tri.corner1, tri.corner2, tri.edgeType1, corners[0], corners[1]),
-				(tri.corner2, tri.corner3, tri.edgeType2, corners[1], corners[2]),
-				(tri.corner3, tri.corner1, tri.edgeType3, corners[2], corners[0]),
-			]:
-				if etype == FloorEdgeType.Uncrossable:
-					key = frozenset((ci, cj))
-					if key not in seen_edges:
-						seen_edges.add(key)
-						self._uncrossable_segments.append((a, b))
-
-	def do_nodes_connect(self, nodeA, nodeB):
-		resultA = self._node_projections.get(nodeA.index)
-		resultB = self._node_projections.get(nodeB.index)
-
-		if resultA is None or resultB is None:
-			return False
-
-		for segA, segB in self._uncrossable_segments:
-			if self.do_lines_intersect(resultA, resultB, segA, segB):
-				return False
-
-		return True
-
-	def do_lines_intersect(self, nA, nB, lA, lB):
-		result = mathutils.geometry.intersect_line_line(nA, nB, lA, lB)
-		if result is not None:
-			onPath = FloorFile.isBetween(lA, lB, result[1])
-			onEdge = FloorFile.isBetween(nA, nB, result[0])
-			return onPath and onEdge
-		else:
-			return False
+	def _find_triangle(self, pos):
+		"""Find which triangle a position lies on (XZ plane).
+		Falls back to nearest triangle centroid for boundary points."""
+		px, pz = pos[0], pos[2]
+		for idx, tri in enumerate(self.tris):
+			if FloorFile._point_in_tri_xz(px, pz,
+				self.verts[tri.corner1][0], self.verts[tri.corner1][2],
+				self.verts[tri.corner2][0], self.verts[tri.corner2][2],
+				self.verts[tri.corner3][0], self.verts[tri.corner3][2]):
+				return idx
+		# Fallback: nearest triangle by centroid distance
+		best_dist = float('inf')
+		best_idx = 0
+		for idx, tri in enumerate(self.tris):
+			cx = (self.verts[tri.corner1][0] + self.verts[tri.corner2][0] + self.verts[tri.corner3][0]) / 3.0
+			cz = (self.verts[tri.corner1][2] + self.verts[tri.corner2][2] + self.verts[tri.corner3][2]) / 3.0
+			d = (px - cx) ** 2 + (pz - cz) ** 2
+			if d < best_dist:
+				best_dist = d
+				best_idx = idx
+		return best_idx
 
 	@staticmethod
-	def isBetween(a, b, c):
-		crossproduct = (c.z - a.z) * (b.x - a.x) - (c.x - a.x) * (b.z - a.z)
-		if abs(crossproduct) > 0.001:
+	def _point_in_tri_xz(px, pz, ax, az, bx, bz, cx, cz):
+		"""Test if point (px,pz) is inside triangle (a,b,c) on XZ plane."""
+		d1 = (px - bx) * (az - bz) - (ax - bx) * (pz - bz)
+		d2 = (px - cx) * (bz - cz) - (bx - cx) * (pz - cz)
+		d3 = (px - ax) * (cz - az) - (cx - ax) * (pz - az)
+		has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
+		has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
+		return not (has_neg and has_pos)
+
+	def do_nodes_connect(self, nodeA, nodeB):
+		"""Test if two nodes can see each other by walking the triangle mesh
+		along the straight line between them on the XZ plane. Matches the
+		engine's FloorMesh::testConnectable / pathWalkCircle approach."""
+		tri_a = self._node_triangles.get(nodeA.index)
+		tri_b = self._node_triangles.get(nodeB.index)
+		if tri_a is None or tri_b is None:
 			return False
-		distAB = (b - a).length
-		distAC = (c - a).length
-		distBC = (c - b).length
-		return ((distAC < distAB) and (distBC < distAB))
+		if tri_a == tri_b:
+			return True
+		return self._walk_mesh(tri_a, nodeA.position, nodeB.position, tri_b)
+
+	def _walk_mesh(self, start_tri, start_pos, end_pos, end_tri):
+		"""Walk across floor triangles following the straight line from
+		start_pos to end_pos on the XZ plane. Returns True if the path
+		doesn't cross any uncrossable edge."""
+		current_tri = start_tri
+		came_from = -1
+		ax, az = start_pos[0], start_pos[2]
+		bx, bz = end_pos[0], end_pos[2]
+
+		for _ in range(len(self.tris) + 1):
+			tri = self.tris[current_tri]
+			edges = (
+				(tri.corner1, tri.corner2, tri.nindex1, tri.edgeType1),
+				(tri.corner2, tri.corner3, tri.nindex2, tri.edgeType2),
+				(tri.corner3, tri.corner1, tri.nindex3, tri.edgeType3),
+			)
+
+			best_s = float('inf')
+			best_neighbor = -1
+			best_etype = FloorEdgeType.Crossable
+
+			for ci, cj, neighbor, etype in edges:
+				if neighbor == came_from:
+					continue
+				v1 = self.verts[ci]
+				v2 = self.verts[cj]
+				result = FloorFile._seg_intersect_xz(
+					ax, az, bx, bz, v1[0], v1[2], v2[0], v2[2])
+				if result is None:
+					continue
+				s, t = result
+				if s > 1e-6 and s <= 1.0 and -1e-6 <= t <= 1.0 + 1e-6 and s < best_s:
+					best_s = s
+					best_neighbor = neighbor
+					best_etype = etype
+
+			if best_s == float('inf'):
+				return current_tri == end_tri
+
+			if best_etype == FloorEdgeType.Uncrossable:
+				return False
+			if best_neighbor == -1:
+				return False
+
+			came_from = current_tri
+			current_tri = best_neighbor
+			if current_tri == end_tri:
+				return True
+
+		return False
+
+	@staticmethod
+	def _seg_intersect_xz(ax, az, bx, bz, cx, cz, dx, dz):
+		"""2D segment intersection on XZ plane.
+		Returns (s, t) parametric values, or None if parallel."""
+		dAx = bx - ax
+		dAz = bz - az
+		dBx = dx - cx
+		dBz = dz - cz
+		denom = dAx * -dBz - dAz * -dBx
+		if abs(denom) < 1e-10:
+			return None
+		diffx = cx - ax
+		diffz = cz - az
+		s = (diffx * -dBz - diffz * -dBx) / denom
+		t = (dAx * diffz - dAz * diffx) / denom
+		return (s, t)
 
 
 	def make_waypoint_connections(self):
