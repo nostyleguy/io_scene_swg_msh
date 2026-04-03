@@ -77,22 +77,11 @@ def export_flr(context, filepath):
             return {'CANCELLED'}
     return {'FINISHED'}
 
-def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
-    start = time.time()
-    print(f'Exporting Flr: {fullpath}')
-
-    # List of global (building-wide) portal indices, indexed by the local (cell) portal index.
-    # A cell with 2 portals; IDs 2 and 3, will be '[2,3]' so we can convert the local portal index to the global one easily
+def build_floor(current_obj, portal_objects):
+    """Build a FloorFile in memory from a Blender mesh object. Does not write to disk."""
     globalPortalIndices = [p[1] for p in portal_objects]
 
-    if use_object_name:
-        dirname = os.path.dirname(fullpath)
-        fullpath = os.path.join(dirname, current_obj.name + ".flr")
-
-    if not os.path.exists(os.path.dirname(fullpath)):
-        os.makedirs(os.path.dirname(fullpath))
-
-    flr = FloorFile(fullpath)
+    flr = FloorFile(None)
 
     me = current_obj.to_mesh()
 
@@ -116,7 +105,7 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
 
     flr.tris = create_floor_triangles_from_mesh(current_obj, me, portal_objects)
     if flr.tris is None:
-        return {'CANCELLED'}, None
+        return None
 
     # Mark fallthrough tris now that they're created
     for ft in flr.tris:
@@ -136,6 +125,7 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
                 node = PathGraphNode()
                 node.index = index
                 node.type = PathNodeType.CellWaypoint
+                node.debug_name = child.name
                 node.radius = child['radius']
                 converted = Vector(convert_vector3(child.location))
                 # Small fixed jitter to avoid landing exactly on floor edges,
@@ -149,12 +139,30 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
                 pathGraph.nodes.append(node)
                 index += 1
 
-    flr.add_portal_nodes(globalPortalIndices)
+    portalNames = [p[0].name for p in portal_objects]
+    flr.add_portal_nodes(globalPortalIndices, portalNames)
     flr.prepare_connectivity()
     flr.make_waypoint_connections()
     flr.prune_redundant_edges()
     flr.add_portal_edges()
 
+    return flr
+
+def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
+    start = time.time()
+    print(f'Exporting Flr: {fullpath}')
+
+    if use_object_name:
+        dirname = os.path.dirname(fullpath)
+        fullpath = os.path.join(dirname, current_obj.name + ".flr")
+
+    os.makedirs(os.path.dirname(fullpath) or '.', exist_ok=True)
+
+    flr = build_floor(current_obj, portal_objects)
+    if flr is None:
+        return {'CANCELLED'}, None
+
+    flr.path = fullpath
     flr.write()
     elapsed = time.time() - start
     print(f"Successfully wrote: {fullpath} Duration: {elapsed:.3f}s")

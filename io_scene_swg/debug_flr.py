@@ -20,11 +20,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os
 import bpy
 from .support import convert_vector3
 from .swg_types import FloorEdgeType, PathNodeType
-from .export_flr import export_one, create_floor_triangles_from_mesh
+from .export_flr import build_floor, create_floor_triangles_from_mesh
 from .export_pob import is_portal_passable
 
 
@@ -224,7 +223,6 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 			self.report({'INFO'}, "Pathgraph overlay removed")
 			return {'FINISHED'}
 
-		tmpFile = os.path.join(os.path.dirname(context.blend_data.filepath), "debugPathgraph.flr")
 		objects = context.selected_objects
 		all_node_points = []
 		all_node_colors = []
@@ -235,9 +233,9 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 				continue
 
 			portal_objects = _gather_portal_objects(ob)
-			result, floor = export_one(tmpFile, ob, portal_objects)
-			if 'FINISHED' not in result:
-				self.report({'ERROR'}, f"Failed to export .flr from {ob.name}")
+			floor = build_floor(ob, portal_objects)
+			if floor is None:
+				self.report({'ERROR'}, f"Failed to build floor from {ob.name}")
 				continue
 
 			pgrf = floor.pathGraph

@@ -252,6 +252,7 @@ class PathGraphNode(object):
 		self.index = -1
 		self.id = -1
 		self.key = -1
+		self.debug_name = ""
 
 	@staticmethod
 	def typeStr(type):
@@ -1383,52 +1384,65 @@ class FloorFile(object):
 
 	def _walk_mesh(self, start_tri, start_pos, end_pos, end_tri):
 		"""Walk across floor triangles following the straight line from
-		start_pos to end_pos on the XZ plane. Returns True if the path
-		doesn't cross any uncrossable edge."""
-		current_tri = start_tri
-		came_from = -1
+		start_pos to end_pos on the XZ plane.  Uses a stack so that
+		vertex-grazing dead-ends can be backtracked."""
 		ax, az = start_pos[0], start_pos[2]
 		bx, bz = end_pos[0], end_pos[2]
 
-		for _ in range(len(self.tris) + 1):
-			tri = self.tris[current_tri]
-			edges = (
-				(tri.corner1, tri.corner2, tri.nindex1, tri.edgeType1),
-				(tri.corner2, tri.corner3, tri.nindex2, tri.edgeType2),
-				(tri.corner3, tri.corner1, tri.nindex3, tri.edgeType3),
-			)
+		# Stack entries: [current_tri, entry_s, came_from, candidates | None]
+		# candidates (computed lazily): list of (s, neighbor, etype) sorted by s
+		stack = [[start_tri, 0.0, -1, None]]
+		visited = {start_tri}
 
-			best_s = float('inf')
-			best_neighbor = -1
-			best_etype = FloorEdgeType.Crossable
+		while stack:
+			frame = stack[-1]
+			current_tri, entry_s, came_from = frame[0], frame[1], frame[2]
 
-			for ci, cj, neighbor, etype in edges:
-				if neighbor == came_from:
-					continue
-				v1 = self.verts[ci]
-				v2 = self.verts[cj]
-				result = FloorFile._seg_intersect_xz(
-					ax, az, bx, bz, v1[0], v1[2], v2[0], v2[2])
-				if result is None:
-					continue
-				s, t = result
-				if s > 1e-6 and s <= 1.0 and -1e-6 <= t <= 1.0 + 1e-6 and s < best_s:
-					best_s = s
-					best_neighbor = neighbor
-					best_etype = etype
+			# Lazily compute exit candidates on first visit to this frame
+			if frame[3] is None:
+				tri = self.tris[current_tri]
+				edges = (
+					(tri.corner1, tri.corner2, tri.nindex1, tri.edgeType1),
+					(tri.corner2, tri.corner3, tri.nindex2, tri.edgeType2),
+					(tri.corner3, tri.corner1, tri.nindex3, tri.edgeType3),
+				)
+				candidates = []
+				s_min = entry_s + 1e-6
+				for ci, cj, neighbor, etype in edges:
+					if neighbor == came_from:
+						continue
+					v1 = self.verts[ci]
+					v2 = self.verts[cj]
+					result = FloorFile._seg_intersect_xz(
+						ax, az, bx, bz, v1[0], v1[2], v2[0], v2[2])
+					if result is None:
+						continue
+					s, t = result
+					if s > s_min and s <= 1.0 and -1e-6 <= t <= 1.0 + 1e-6:
+						candidates.append((s, neighbor, etype))
+				candidates.sort()
+				frame[3] = candidates
 
-			if best_s == float('inf'):
-				return current_tri == end_tri
+			candidates = frame[3]
 
-			if best_etype == FloorEdgeType.Uncrossable:
+			if not candidates:
+				visited.discard(current_tri)
+				stack.pop()
+				continue
+
+			s, neighbor, etype = candidates.pop(0)
+
+			if etype == FloorEdgeType.Uncrossable:
 				return False
-			if best_neighbor == -1:
-				return False
 
-			came_from = current_tri
-			current_tri = best_neighbor
-			if current_tri == end_tri:
+			if neighbor == -1 or neighbor in visited:
+				continue
+
+			if neighbor == end_tri:
 				return True
+
+			visited.add(neighbor)
+			stack.append([neighbor, s, current_tri, None])
 
 		return False
 
@@ -1470,7 +1484,7 @@ class FloorFile(object):
 					self.pathGraph.edges.append(edge2)
 		
 
-	def add_portal_nodes(self, globalPortalIndices):
+	def add_portal_nodes(self, globalPortalIndices, portalNames=None):
 		if self.pathGraph is None:
 			print(f"Error! Asked to add_portal_nodes without first assigning pathGraph")
 			return
@@ -1507,6 +1521,7 @@ class FloorFile(object):
 				node.key = globalPortalIndices[portalId]
 				node.position = C
 				node.radius = 0
+				node.debug_name = portalNames[portalId] if portalNames else f"portal_{portalId}"
 				self.pathGraph.nodes.append(node)
 				added += 1
 
