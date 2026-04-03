@@ -17,12 +17,8 @@ SWG_EFT_HUEMAP = 16
 SWG_EFT_HUEFULL = 32
 SWG_EFT_HUEMAP_RB = 64
 
-def getChildren(myObject): 
-	children = [] 
-	for ob in bpy.data.objects: 
-		if ob.parent == myObject: 
-			children.append(ob) 
-	return children
+def getChildren(myObject):
+	return list(myObject.children)
 	
 def clean_path(path):
 	return path.replace('\\', '/') if (os.sep == '/') else path.replace('/', '\\')

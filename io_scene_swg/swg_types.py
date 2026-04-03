@@ -1198,12 +1198,14 @@ class PathEdge(object):
 
 class FloorFile(object):
 
-	__slots__ = ('path', 'verts', 'tris', 'pathGraph')
+	__slots__ = ('path', 'verts', 'tris', 'pathGraph', '_node_projections', '_uncrossable_segments')
 	def __init__(self, path):
 		self.path = path
 		self.verts = []
 		self.tris = []
 		self.pathGraph = None
+		self._node_projections = None
+		self._uncrossable_segments = None
 
 	def __str__(self):
 		return f"Path: {self.path}"
@@ -1326,53 +1328,50 @@ class FloorFile(object):
 		iff.exitForm("FLOR")
 		iff.write(self.path)
 
-	def do_nodes_connect(self, nodeA, nodeB):
-
-		resultA = None
-		resultB = None
-
-		# First locate which triangles the nodes are on..
-		for tiA, triA in enumerate(self.tris):
-			corners = [Vector(self.verts[i]) for i in [triA.corner1, triA.corner2, triA.corner3]]
-			pointA = Vector(nodeA.position)
-			resultA = mathutils.geometry.intersect_point_tri(pointA, corners[0], corners[1], corners[2])
-			if resultA is not None:
-				distA = (resultA - pointA).length
-				#print(f"Node {nodeA.index} at {nodeA.position} is above tri: {ti} with corners ({self.verts[tri.corner1]}, {self.verts[tri.corner2]}, {self.verts[tri.corner3]} Result: {resultA}) Dist: {distA}")
-				if distA > 0.1:
-					resultA = None
-				else:
-					#print(f"Node {nodeA.index} at {nodeA.position} is above tri: {tiA} with corners ({self.verts[triA.corner1]}, {self.verts[triA.corner2]}, {self.verts[triA.corner3]} Result: {resultA}) Dist: {distA}")
+	def prepare_connectivity(self):
+		"""Pre-compute node floor projections and uncrossable edge segments.
+		Call once before make_waypoint_connections / add_portal_edges."""
+		if self.pathGraph is None:
+			print(f"Error! Asked to prepare_connectivity without first assigning pathGraph")
+			return
+		# Project every pathgraph node onto the floor
+		self._node_projections = {}
+		for node in self.pathGraph.nodes:
+			point = Vector(node.position)
+			projected = None
+			for tri in self.tris:
+				corners = [Vector(self.verts[i]) for i in [tri.corner1, tri.corner2, tri.corner3]]
+				result = mathutils.geometry.intersect_point_tri(point, corners[0], corners[1], corners[2])
+				if result is not None and (result - point).length <= 0.1:
+					projected = result
 					break
-		
-		for tiB, triB in enumerate(self.tris):
-			cornersB = [Vector(self.verts[i]) for i in [triB.corner1, triB.corner2, triB.corner3]]
-			pointB = Vector(nodeB.position)
-			resultB = mathutils.geometry.intersect_point_tri(pointB, cornersB[0], cornersB[1], cornersB[2])
-			if resultB is not None:
-				distB = (resultB - pointB).length
-				#print(f"Node {nodeB.index} at {nodeB.position} is above tri: {ti} with corners ({self.verts[tri.corner1]}, {self.verts[tri.corner2]}, {self.verts[tri.corner3]}) Result: {resultB} Dist: {distB}")
-				if distB > 0.1:
-					resultB = None
-				else:
-					#print(f"Node {nodeB.index} at {nodeB.position} is above tri: {tiB} with corners ({self.verts[triB.corner1]}, {self.verts[triB.corner2]}, {self.verts[triB.corner3]}) Result: {resultB} Dist: {distB}")
-					break
+			self._node_projections[node.index] = projected
 
-		if (resultA is None) or (resultB is None):
-			#print(f"One of the nodes at {nodeA.position} or {nodeB.position} are't on a floor triangle! Skipping!")
-			return False
-		else:
-			#print(f"NodeA: {nodeA.index} at {nodeA.position} on triangle at {resultA}")
-			#print(f"NodeB: {nodeB.index} at {nodeB.position} on triangle at {resultB}")
-			pass
-
-		for ti, tri in enumerate(self.tris):
+		# Collect unique uncrossable edge segments
+		self._uncrossable_segments = []
+		seen_edges = set()
+		for tri in self.tris:
 			corners = [Vector(self.verts[i]) for i in [tri.corner1, tri.corner2, tri.corner3]]
-			if self.do_lines_intersect(resultA, resultB, corners[0], corners[1]) and (tri.edgeType1 == FloorEdgeType.Uncrossable):
-				return False
-			if self.do_lines_intersect(resultA, resultB, corners[1], corners[2]) and (tri.edgeType2 == FloorEdgeType.Uncrossable):
-				return False
-			if self.do_lines_intersect(resultA, resultB, corners[2], corners[0]) and (tri.edgeType3 == FloorEdgeType.Uncrossable):
+			for ci, cj, etype, a, b in [
+				(tri.corner1, tri.corner2, tri.edgeType1, corners[0], corners[1]),
+				(tri.corner2, tri.corner3, tri.edgeType2, corners[1], corners[2]),
+				(tri.corner3, tri.corner1, tri.edgeType3, corners[2], corners[0]),
+			]:
+				if etype == FloorEdgeType.Uncrossable:
+					key = frozenset((ci, cj))
+					if key not in seen_edges:
+						seen_edges.add(key)
+						self._uncrossable_segments.append((a, b))
+
+	def do_nodes_connect(self, nodeA, nodeB):
+		resultA = self._node_projections.get(nodeA.index)
+		resultB = self._node_projections.get(nodeB.index)
+
+		if resultA is None or resultB is None:
+			return False
+
+		for segA, segB in self._uncrossable_segments:
+			if self.do_lines_intersect(resultA, resultB, segA, segB):
 				return False
 
 		return True
@@ -1503,45 +1502,38 @@ class FloorFile(object):
 
 	def prune_redundant_edges(self):
 		edgesToRemove = set()
-		for edge1 in self.pathGraph.edges:
-			for edge2 in self.pathGraph.edges:
 
-				AA = edge1.indexA
-				AB = edge1.indexB
-				BA = edge2.indexA
-				BB = edge2.indexB
+		# Group edges by each vertex they touch — only edges sharing a
+		# vertex can be redundant, so this avoids the O(E^2) full scan.
+		edges_by_vertex = {}
+		for edge in self.pathGraph.edges:
+			edges_by_vertex.setdefault(edge.indexA, []).append(edge)
+			edges_by_vertex.setdefault(edge.indexB, []).append(edge)
 
-				if ((AA == BA) and (AB == BB)):
-					continue
-				if ((AA == BB) and (AB == BA)):
-					continue
+		angle_threshold = (20.0 / 360.0) * (2.0 * math.pi)
 
-				if(AA == BA):
-					A = Vector(self.pathGraph.nodes[AA].position)
-					B = Vector(self.pathGraph.nodes[AB].position)
-					C = Vector(self.pathGraph.nodes[BB].position)
-				elif(AA == BB):
-					A = Vector(self.pathGraph.nodes[AA].position)
-					B = Vector(self.pathGraph.nodes[AB].position)
-					C = Vector(self.pathGraph.nodes[BA].position)
-				elif(AB == BA):
-					A = Vector(self.pathGraph.nodes[AB].position)
-					B = Vector(self.pathGraph.nodes[AA].position)
-					C = Vector(self.pathGraph.nodes[BB].position)
-				elif(AB == BB):
-					A = Vector(self.pathGraph.nodes[AB].position)
-					B = Vector(self.pathGraph.nodes[AA].position)
-					C = Vector(self.pathGraph.nodes[BA].position)
-				else:
-					continue
+		for vertex, edges in edges_by_vertex.items():
+			for i, edge1 in enumerate(edges):
+				for edge2 in edges[i + 1:]:
+					# Skip same or reverse edge
+					if edge1.indexA == edge2.indexA and edge1.indexB == edge2.indexB:
+						continue
+					if edge1.indexA == edge2.indexB and edge1.indexB == edge2.indexA:
+						continue
 
-				dA = (B-A).normalized()
-				dB = (C-A).normalized()
-				if(support.angle_between_unnormalized(dA, dB) < ((20.0 / 360.0) * (2.0 * math.pi))):
-					if((B-A).length > (C-A).length):
-						edgesToRemove.add(edge1)
-					else:
-						edgesToRemove.add(edge2)
+					A = Vector(self.pathGraph.nodes[vertex].position)
+					B_idx = edge1.indexB if edge1.indexA == vertex else edge1.indexA
+					C_idx = edge2.indexB if edge2.indexA == vertex else edge2.indexA
+					B = Vector(self.pathGraph.nodes[B_idx].position)
+					C = Vector(self.pathGraph.nodes[C_idx].position)
+
+					dA = (B - A).normalized()
+					dB = (C - A).normalized()
+					if support.angle_between_unnormalized(dA, dB) < angle_threshold:
+						if (B - A).length > (C - A).length:
+							edgesToRemove.add(edge1)
+						else:
+							edgesToRemove.add(edge2)
 
 		# Also remove the reverse of each pruned edge to maintain symmetric connectivity
 		edge_by_pair = {}

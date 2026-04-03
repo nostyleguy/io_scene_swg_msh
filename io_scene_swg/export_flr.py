@@ -150,6 +150,7 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
                 index += 1
 
     flr.add_portal_nodes(globalPortalIndices)
+    flr.prepare_connectivity()
     flr.make_waypoint_connections()
     flr.prune_redundant_edges()
     flr.add_portal_edges()

@@ -327,16 +327,11 @@ def export_one(fullpath, extract_dir, collection, specific_cells_to_export, flip
 		print(f"clockwise_by_portal: {clockwise_by_portal}")
 		for cell_id, cell in enumerate(pobFile.cells):
 			for portal in cell.portals:
-				# print(f"Checking Cell: {cell_id} Portal: {portal.id}: ")
-				# clockwise = determine_if_portal_points_into_cell(portalObjs[portal.id], center_by_cell[cell_id])
-				for connecting_portal in portal_connections:
-					if portal.id == connecting_portal:
-						if cell_id in portal_connections[portal.id]:
-							connected_cell=None
-							for other_cell in portal_connections[portal.id]:
-								if other_cell == cell_id:
-									continue
-								connected_cell = other_cell
+				connected_cell = None
+				for other_cell in portal_connections.get(portal.id, []):
+					if other_cell != cell_id:
+						connected_cell = other_cell
+						break
 
 				if connected_cell == None:
 					print(f"Error. Can not find connecting room for Cell: {cell_id} Portal: {portal.id}")
