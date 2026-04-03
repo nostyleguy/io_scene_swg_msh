@@ -309,9 +309,9 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 
 
 class SWG_Debug_Portal_Edges(bpy.types.Operator):
-	bl_idname = "object.swg_debug_portal_edges"
-	bl_label = "Debug Portal Edges"
-	bl_description = '''Visualize which floor triangle edges would get marked as portals (ESC to dismiss)'''
+	bl_idname = "object.swg_debug_floor_edges"
+	bl_label = "Debug Floor Edges"
+	bl_description = '''Visualize floor triangle edge classifications (ESC to dismiss)'''
 
 	# Singleton overlay state — shared across instances so only one overlay
 	# is active at a time and the draw callback can access the data.
@@ -437,4 +437,4 @@ class SWG_Debug_Portal_Edges(bpy.types.Operator):
 
 	@staticmethod
 	def _draw_legend_callback():
-		_draw_legend(SWG_Debug_Portal_Edges._legend_entries, title="Portal Edges")
+		_draw_legend(SWG_Debug_Portal_Edges._legend_entries, title="Floor Edges")
