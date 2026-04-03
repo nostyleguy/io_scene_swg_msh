@@ -184,13 +184,14 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 		PathNodeType.BuildingEntrance: (1.0, 1.0, 0.0, 1.0),
 	}
 	_default_color = (0.8, 0.8, 0.8, 1.0)
+	_edge_color = (1.0, 1.0, 1.0, 0.6)
 	_legend_entries = [
-		((1.0, 0.5, 0.0, 1.0), "Cell Portal"),
-		((0.0, 1.0, 1.0, 1.0), "Cell Waypoint"),
-		((1.0, 0.0, 1.0, 1.0), "Cell POI"),
-		((1.0, 1.0, 0.0, 1.0), "Building Entrance"),
-		((0.8, 0.8, 0.8, 1.0), "Other"),
-		((1.0, 1.0, 1.0, 0.6), "Edge"),
+		(_type_colors[PathNodeType.CellPortal], "Cell Portal"),
+		(_type_colors[PathNodeType.CellWaypoint], "Cell Waypoint"),
+		(_type_colors[PathNodeType.CellPOI], "Cell POI"),
+		(_type_colors[PathNodeType.BuildingEntrance], "Building Entrance"),
+		(_default_color, "Other"),
+		(_edge_color, "Edge"),
 	]
 
 	@classmethod
@@ -286,7 +287,7 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 		if cls._edge_verts:
 			gpu.state.line_width_set(2.0)
 			batch = batch_for_shader(shader, 'LINES', {"pos": cls._edge_verts})
-			shader.uniform_float("color", (1.0, 1.0, 1.0, 0.6))
+			shader.uniform_float("color", cls._edge_color)
 			batch.draw(shader)
 
 		# Draw nodes as colored points
@@ -317,13 +318,19 @@ class SWG_Debug_Portal_Edges(bpy.types.Operator):
 	_handle = None
 	_legend_handle = None
 	_draw_groups = []
+	_color_portal = (1.0, 1.0, 0.0, 1.0)
+	_color_uncrossable = (1.0, 0.0, 0.0, 1.0)
+	_color_wall_base = (1.0, 0.5, 0.0, 1.0)
+	_color_wall_top = (1.0, 0.3, 0.0, 1.0)
+	_color_fallthrough = (0.0, 1.0, 0.0, 1.0)
+	_color_crossable = (0.2, 0.2, 0.2, 0.15)
 	_legend_entries = [
-		((1.0, 1.0, 0.0, 1.0), "Portal"),
-		((1.0, 0.0, 0.0, 1.0), "Uncrossable"),
-		((1.0, 0.5, 0.0, 1.0), "Wall Base"),
-		((1.0, 0.3, 0.0, 1.0), "Wall Top"),
-		((0.0, 1.0, 0.0, 1.0), "Fallthrough"),
-		((0.4, 0.4, 0.4, 0.8), "Crossable"),
+		(_color_portal, "Portal"),
+		(_color_uncrossable, "Uncrossable"),
+		(_color_wall_base, "Wall Base"),
+		(_color_wall_top, "Wall Top"),
+		(_color_fallthrough, "Fallthrough"),
+		(_color_crossable, "Crossable"),
 	]
 
 	@classmethod
@@ -382,17 +389,17 @@ class SWG_Debug_Portal_Edges(bpy.types.Operator):
 					a = tuple(world @ me.vertices[vi_a].co)
 					b = tuple(world @ me.vertices[vi_b].co)
 					if portal_id != -1:
-						color = (1.0, 1.0, 0.0, 1.0)      # Yellow: portal
+						color = cls._color_portal
 					elif edge_type == FloorEdgeType.Uncrossable:
-						color = (1.0, 0.0, 0.0, 1.0)      # Red: uncrossable
+						color = cls._color_uncrossable
 					elif edge_type == FloorEdgeType.WallBase:
-						color = (1.0, 0.5, 0.0, 1.0)      # Orange: wall base
+						color = cls._color_wall_base
 					elif edge_type == FloorEdgeType.WallTop:
-						color = (1.0, 0.3, 0.0, 1.0)      # Dark orange: wall top
+						color = cls._color_wall_top
 					elif is_fallthrough:
-						color = (0.0, 1.0, 0.0, 1.0)      # Green: crossable fallthrough
+						color = cls._color_fallthrough
 					else:
-						color = (0.2, 0.2, 0.2, 0.15)     # Dim grey: crossable
+						color = cls._color_crossable
 					color_buckets.setdefault(color, []).extend([a, b])
 
 		if not color_buckets:
