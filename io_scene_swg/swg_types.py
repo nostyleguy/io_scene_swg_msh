@@ -253,6 +253,7 @@ class PathGraphNode(object):
 		self.id = -1
 		self.key = -1
 
+	@staticmethod
 	def typeStr(type):
 		return PathGraphNode.typeEnum[type]
 
@@ -983,6 +984,99 @@ class IndexedTriangleList(object):
 		iff.exitForm("0000")
 		iff.exitForm("IDTL")
 		
+class BoxTreeNode:
+	__slots__ = ('box_min', 'box_max', 'index', 'userId', 'childA', 'childB')
+	def __init__(self, box_min, box_max, userId=-1):
+		self.box_min = list(box_min)
+		self.box_max = list(box_max)
+		self.index = 0
+		self.userId = userId
+		self.childA = None
+		self.childB = None
+
+class BoxTree:
+	"""AABB tree for spatial acceleration of floor collision queries.
+	Uses top-down median-split construction (O(n log n)) which produces a
+	functionally equivalent tree to the engine's bottom-up greedy approach."""
+
+	@staticmethod
+	def build_from_tris(verts, tris):
+		"""Build a BoxTree from floor vertices and triangles."""
+		if not tris:
+			return BoxTree()
+
+		leaves = []
+		for i, tri in enumerate(tris):
+			corners = [verts[tri.corner1], verts[tri.corner2], verts[tri.corner3]]
+			bmin = [min(c[j] for c in corners) for j in range(3)]
+			bmax = [max(c[j] for c in corners) for j in range(3)]
+			centroid = [(bmin[j] + bmax[j]) * 0.5 for j in range(3)]
+			leaves.append((BoxTreeNode(bmin, bmax, userId=i), centroid))
+
+		tree = BoxTree()
+		tree.root = BoxTree._build_recursive(leaves)
+		return tree
+
+	@staticmethod
+	def _build_recursive(leaves):
+		if len(leaves) == 1:
+			return leaves[0][0]
+
+		# Find longest axis of the overall bounding box of centroids
+		cmin = [min(c[j] for _, c in leaves) for j in range(3)]
+		cmax = [max(c[j] for _, c in leaves) for j in range(3)]
+		extents = [cmax[j] - cmin[j] for j in range(3)]
+		axis = extents.index(max(extents))
+
+		# Sort by centroid along that axis and split at median
+		leaves.sort(key=lambda lc: lc[1][axis])
+		mid = len(leaves) // 2
+
+		childA = BoxTree._build_recursive(leaves[:mid])
+		childB = BoxTree._build_recursive(leaves[mid:])
+
+		parent = BoxTreeNode(
+			[min(childA.box_min[k], childB.box_min[k]) for k in range(3)],
+			[max(childA.box_max[k], childB.box_max[k]) for k in range(3)],
+		)
+		parent.childA = childA
+		parent.childB = childB
+		return parent
+
+	def __init__(self):
+		self.root = None
+
+	def write(self, iff):
+		if self.root is None:
+			return
+		# Assign pre-order indices and flatten to list
+		flat = []
+		self._flatten(self.root, flat)
+
+		iff.insertForm("BTRE")
+		iff.insertForm("0000")
+		iff.insertChunk("NODS")
+		iff.insert_int32(len(flat))
+		for node in flat:
+			iff.insertFloatVector3(node.box_max)
+			iff.insertFloatVector3(node.box_min)
+			iff.insert_int32(node.index)
+			iff.insert_int32(node.userId)
+			iff.insert_int32(node.childA.index if node.childA else -1)
+			iff.insert_int32(node.childB.index if node.childB else -1)
+		iff.exitChunk("NODS")
+		iff.exitForm("0000")
+		iff.exitForm("BTRE")
+
+	def _flatten(self, node, flat):
+		"""Pre-order traversal to assign indices and collect into flat list."""
+		node.index = len(flat)
+		flat.append(node)
+		if node.childA:
+			self._flatten(node.childA, flat)
+		if node.childB:
+			self._flatten(node.childB, flat)
+
 class FloorEdgeType(IntEnum):
 	Uncrossable = 0
 	Crossable = 1
@@ -1202,6 +1296,11 @@ class FloorFile(object):
 			t.write_0002(iff)
 		iff.exitChunk("TRIS")
 
+		# Build box tree for meshes with >= 10 triangles (matches C++ gs_minTrianglesForBoxtree)
+		if len(self.tris) >= 10:
+			boxTree = BoxTree.build_from_tris(self.verts, self.tris)
+			boxTree.write(iff)
+
 		# Collect border edges, excluding WallTop (matches C++ FloorMesh::write)
 		borderEdges = []
 		for index, tri in enumerate(self.tris):
@@ -1280,15 +1379,16 @@ class FloorFile(object):
 
 	def do_lines_intersect(self, nA, nB, lA, lB):
 		result = mathutils.geometry.intersect_line_line(nA, nB, lA, lB)
-		if result != None:
-			onPath = FloorFile.isBetween(lA,lB,result[0])
-			onEdge = FloorFile.isBetween(nA,nB,result[0])
+		if result is not None:
+			onPath = FloorFile.isBetween(lA, lB, result[1])
+			onEdge = FloorFile.isBetween(nA, nB, result[0])
 			return onPath and onEdge
 		else:
 			return False
 
+	@staticmethod
 	def isBetween(a, b, c):
-		crossproduct = (c.y - a.y) * (b.x - a.x) - (c.x - a.x) * (b.y - a.y)
+		crossproduct = (c.z - a.z) * (b.x - a.x) - (c.x - a.x) * (b.z - a.z)
 		if abs(crossproduct) > 0.001:
 			return False
 		distAB = (b - a).length
@@ -1298,69 +1398,70 @@ class FloorFile(object):
 
 
 	def make_waypoint_connections(self):
-		if self.pathGraph == None:
-			print(f"Error! Asked to make waypoint connecitons without first assigning pathGraph")
+		if self.pathGraph is None:
+			print(f"Error! Asked to make waypoint connections without first assigning pathGraph")
 			return
 
-		for node in self.pathGraph.nodes:
-			if node.type == 1:
-				for node2 in self.pathGraph.nodes:
-					if node2.type == 1 and (node != node2):
-						if self.do_nodes_connect(node, node2):
-							#print(f"Nodes {node.position} and {node2.position} are connected!")						 
-							edge = PathGraphEdge()
-							edge.indexA = node.index
-							edge.indexB = node2.index
-							self.pathGraph.edges.append(edge)	  
+		waypoints = [n for n in self.pathGraph.nodes if n.type == 1]
+		for i, node in enumerate(waypoints):
+			for node2 in waypoints[i + 1:]:
+				if self.do_nodes_connect(node, node2):
+					edge = PathGraphEdge()
+					edge.indexA = node.index
+					edge.indexB = node2.index
+					self.pathGraph.edges.append(edge)
+
+					edge2 = PathGraphEdge()
+					edge2.indexA = node2.index
+					edge2.indexB = node.index
+					self.pathGraph.edges.append(edge2)
 		
 
-	def add_portal_nodes(self, globalPortalIndecies):
-		if self.pathGraph == None:
+	def add_portal_nodes(self, globalPortalIndices):
+		if self.pathGraph is None:
 			print(f"Error! Asked to add_portal_nodes without first assigning pathGraph")
 			return
 
-		starting_size = len(self.pathGraph.nodes)
-		last_index=-1
-
-		if starting_size > 0:
+		last_index = -1
+		if self.pathGraph.nodes:
 			last_index = self.pathGraph.nodes[-1].index
 
-		portalIdsAdded=set()
-		for tri in self.tris:
-			A = None
-			B = None
-			C = None
-			pid = None
-			if tri.portalId1 != -1:
-				pid = globalPortalIndecies[tri.portalId1]
-				A = Vector(self.verts[tri.corner1])
-				B = Vector(self.verts[tri.corner2])
-			elif tri.portalId2 != -1:
-				pid = globalPortalIndecies[tri.portalId2]
-				A = Vector(self.verts[tri.corner2])
-				B = Vector(self.verts[tri.corner3])
-			elif tri.portalId3 != -1:
-				pid = globalPortalIndecies[tri.portalId3]
-				A = Vector(self.verts[tri.corner3])
-				B = Vector(self.verts[tri.corner1])
-			if pid != None:
-				C = A + ((B-A) / 2.0)
-				if pid not in portalIdsAdded:
-					last_index += 1
-					node = PathGraphNode()
-					node.type = 0
-					node.index = last_index
-					node.key = pid
-					node.position = C
-					node.radius = 0
-					self.pathGraph.nodes.append(node)
-					portalIdsAdded.add(pid)
+		# Small fixed jitter to avoid landing exactly on floor edges,
+		# which causes ambiguous point-in-triangle tests. Matches
+		# Maya exporter (FloorBuilder.cpp:664).
+		jitter = Vector((0.007, 0.0, 0.003))
+		added = 0
 
-		print(f"Added {len(portalIdsAdded)} portal nodes. Now at {len(self.pathGraph.nodes)}")
+		for tri in self.tris:
+			edges = [
+				(tri.portalId1, tri.corner1, tri.corner2),
+				(tri.portalId2, tri.corner2, tri.corner3),
+				(tri.portalId3, tri.corner3, tri.corner1),
+			]
+			for portalId, cornerA, cornerB in edges:
+				if portalId == -1:
+					continue
+				A = Vector(self.verts[cornerA])
+				B = Vector(self.verts[cornerB])
+				if (B - A).length < 0.01:
+					continue
+				C = (A + B) / 2.0 + jitter
+
+				last_index += 1
+				node = PathGraphNode()
+				node.type = 0
+				node.index = last_index
+				node.key = globalPortalIndices[portalId]
+				node.position = C
+				node.radius = 0
+				self.pathGraph.nodes.append(node)
+				added += 1
+
+		print(f"Added {added} portal nodes. Now at {len(self.pathGraph.nodes)}")
 
 
 	def add_portal_edges(self):
-		if self.pathGraph == None:
+		if self.pathGraph is None:
 			print(f"Error! Asked to add_portal_edges without first assigning pathGraph")
 			return
 
@@ -1401,7 +1502,7 @@ class FloorFile(object):
 				
 
 	def prune_redundant_edges(self):
-		edgesToRemove=set()
+		edgesToRemove = set()
 		for edge1 in self.pathGraph.edges:
 			for edge2 in self.pathGraph.edges:
 
@@ -1431,7 +1532,7 @@ class FloorFile(object):
 					A = Vector(self.pathGraph.nodes[AB].position)
 					B = Vector(self.pathGraph.nodes[AA].position)
 					C = Vector(self.pathGraph.nodes[BA].position)
-				else:				
+				else:
 					continue
 
 				dA = (B-A).normalized()
@@ -1441,11 +1542,19 @@ class FloorFile(object):
 						edgesToRemove.add(edge1)
 					else:
 						edgesToRemove.add(edge2)
-		before=len(self.pathGraph.edges)
-		for e in edgesToRemove:
-			if e in self.pathGraph.edges:
-				self.pathGraph.edges.remove(e)		
-		print(f"Edges before: {before} but removed: {len(edgesToRemove)}. Now: {len(self.pathGraph.edges)}")
+
+		# Also remove the reverse of each pruned edge to maintain symmetric connectivity
+		edge_by_pair = {}
+		for edge in self.pathGraph.edges:
+			edge_by_pair[(edge.indexA, edge.indexB)] = edge
+		for e in list(edgesToRemove):
+			reverse = edge_by_pair.get((e.indexB, e.indexA))
+			if reverse is not None:
+				edgesToRemove.add(reverse)
+
+		before = len(self.pathGraph.edges)
+		self.pathGraph.edges = [e for e in self.pathGraph.edges if e not in edgesToRemove]
+		print(f"Edges before: {before} but removed: {before - len(self.pathGraph.edges)}. Now: {len(self.pathGraph.edges)}")
 
 class MgnHardpoint(object):
 	__slots__ = ('name', 'parent', 'orientation', 'position')

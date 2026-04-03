@@ -23,9 +23,43 @@
 import os
 import time
 import math
+import mathutils
 from .swg_types import FloorEdgeType, FloorFile, FloorTri, PathGraph, PathGraphNode, PathNodeType
 from .support import convert_vector3, getChildren
 from mathutils import Vector
+
+SNAP_MAX_DIST_BELOW = 3.0
+SNAP_MAX_DIST_ABOVE = 1.0
+
+def _snap_to_floor(pos, flr):
+    """Snap a position's Y to the floor surface, preserving XZ.
+    Matches Maya's vertical ray cast (FloorBuilder.cpp:597-623):
+    prefer floor below within 3.0, fall back to above within 1.0."""
+    best_below_y = None
+    best_below_dist = float('inf')
+    best_above_y = None
+    best_above_dist = float('inf')
+    ray_down = Vector((0.0, -1.0, 0.0))
+    ray_up = Vector((0.0, 1.0, 0.0))
+    for tri in flr.tris:
+        corners = [Vector(flr.verts[i]) for i in [tri.corner1, tri.corner2, tri.corner3]]
+        # Search below
+        hit = mathutils.geometry.intersect_ray_tri(corners[0], corners[1], corners[2], ray_down, pos, True)
+        if hit is not None:
+            dist = pos.y - hit.y
+            if dist <= SNAP_MAX_DIST_BELOW and dist < best_below_dist:
+                best_below_dist = dist
+                best_below_y = hit.y
+        # Search above
+        hit = mathutils.geometry.intersect_ray_tri(corners[0], corners[1], corners[2], ray_up, pos, True)
+        if hit is not None:
+            dist = hit.y - pos.y
+            if dist <= SNAP_MAX_DIST_ABOVE and dist < best_above_dist:
+                best_above_dist = dist
+                best_above_y = hit.y
+    if best_below_y is not None:
+        return best_below_y
+    return best_above_y
 
 def export_flr(context, filepath):
     objects = context.selected_objects
@@ -104,6 +138,13 @@ def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
                 node.type = PathNodeType.CellWaypoint
                 node.radius = child['radius']
                 converted = Vector(convert_vector3(child.location))
+                # Small fixed jitter to avoid landing exactly on floor edges,
+                # which causes ambiguous point-in-triangle tests. Matches
+                # Maya exporter (FloorBuilder.cpp:593).
+                converted += Vector((0.007, 0.0, 0.003))
+                snapped_y = _snap_to_floor(converted, flr)
+                if snapped_y is not None:
+                    converted.y = snapped_y
                 node.position = [converted.x, converted.y, converted.z]
                 pathGraph.nodes.append(node)
                 index += 1
