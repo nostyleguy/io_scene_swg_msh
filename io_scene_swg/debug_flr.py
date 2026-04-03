@@ -52,6 +52,78 @@ def _restore_gpu_state():
 	gpu.state.blend_set('NONE')
 
 
+def _draw_legend(entries, title=None):
+	"""Draw a 2D color legend overlay in the bottom-left of the viewport.
+
+	entries: list of (color_tuple, label_string)
+	title: optional title string shown above entries
+	"""
+	import gpu
+	import blf
+	from gpu_extras.batch import batch_for_shader
+
+	font_id = 0
+	font_size = 14
+	swatch_size = 12
+	padding = 10
+	line_height = 20
+	margin = 20
+
+	try:
+		blf.size(font_id, font_size)
+	except TypeError:
+		blf.size(font_id, font_size, 72)
+
+	max_label_width = 0
+	for _color, label in entries:
+		w, _h = blf.dimensions(font_id, label)
+		max_label_width = max(max_label_width, w)
+	if title:
+		tw, _th = blf.dimensions(font_id, title)
+		max_label_width = max(max_label_width, tw)
+
+	box_width = padding + swatch_size + padding + max_label_width + padding
+	num_lines = len(entries) + (1 if title else 0)
+	box_height = padding + num_lines * line_height + padding
+
+	x0 = margin
+	y0 = margin
+
+	shader = _get_builtin_shader('UNIFORM_COLOR', '2D_UNIFORM_COLOR')
+	gpu.state.blend_set('ALPHA')
+
+	bg_verts = [(x0, y0), (x0 + box_width, y0),
+				(x0 + box_width, y0 + box_height), (x0, y0 + box_height)]
+	batch = batch_for_shader(shader, 'TRIS', {"pos": bg_verts},
+							indices=[(0, 1, 2), (0, 2, 3)])
+	shader.uniform_float("color", (0.0, 0.0, 0.0, 0.7))
+	batch.draw(shader)
+
+	y = y0 + box_height - padding
+	if title:
+		y -= line_height
+		blf.position(font_id, x0 + padding, y + 2, 0)
+		blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
+		blf.draw(font_id, title)
+
+	for color, label in entries:
+		y -= line_height
+		sx = x0 + padding
+		sy = y + 2
+		swatch_verts = [(sx, sy), (sx + swatch_size, sy),
+						(sx + swatch_size, sy + swatch_size), (sx, sy + swatch_size)]
+		batch = batch_for_shader(shader, 'TRIS', {"pos": swatch_verts},
+								indices=[(0, 1, 2), (0, 2, 3)])
+		shader.uniform_float("color", color)
+		batch.draw(shader)
+
+		blf.position(font_id, sx + swatch_size + padding, y + 2, 0)
+		blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
+		blf.draw(font_id, label)
+
+	gpu.state.blend_set('NONE')
+
+
 def _tag_redraw_3d(context):
 	for area in context.screen.areas:
 		if area.type == 'VIEW_3D':
@@ -100,6 +172,7 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 	# Singleton overlay state — shared across instances so only one overlay
 	# is active at a time and the draw callback can access the data.
 	_handle = None
+	_legend_handle = None
 	_edge_verts = []
 	_node_points = []
 	_node_colors = []
@@ -111,6 +184,14 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 		PathNodeType.BuildingEntrance: (1.0, 1.0, 0.0, 1.0),
 	}
 	_default_color = (0.8, 0.8, 0.8, 1.0)
+	_legend_entries = [
+		((1.0, 0.5, 0.0, 1.0), "Cell Portal"),
+		((0.0, 1.0, 1.0, 1.0), "Cell Waypoint"),
+		((1.0, 0.0, 1.0, 1.0), "Cell POI"),
+		((1.0, 1.0, 0.0, 1.0), "Building Entrance"),
+		((0.8, 0.8, 0.8, 1.0), "Other"),
+		((1.0, 1.0, 1.0, 0.6), "Edge"),
+	]
 
 	@classmethod
 	def poll(cls, context):
@@ -130,7 +211,10 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 			cls._edge_verts = []
 			cls._node_points = []
 			cls._node_colors = []
-			_tag_redraw_3d(context)
+		if cls._legend_handle is not None:
+			bpy.types.SpaceView3D.draw_handler_remove(cls._legend_handle, 'WINDOW')
+			cls._legend_handle = None
+		_tag_redraw_3d(context)
 
 	def execute(self, context):
 		cls = SWG_Visualize_Floor_Pathgraph
@@ -180,6 +264,9 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 		cls._handle = bpy.types.SpaceView3D.draw_handler_add(
 			cls._draw_callback, (), 'WINDOW', 'POST_VIEW'
 		)
+		cls._legend_handle = bpy.types.SpaceView3D.draw_handler_add(
+			cls._draw_legend_callback, (), 'WINDOW', 'POST_PIXEL'
+		)
 
 		context.window_manager.modal_handler_add(self)
 		_tag_redraw_3d(context)
@@ -215,6 +302,10 @@ class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
 
 		_restore_gpu_state()
 
+	@staticmethod
+	def _draw_legend_callback():
+		_draw_legend(SWG_Visualize_Floor_Pathgraph._legend_entries, title="Pathgraph")
+
 
 class SWG_Debug_Portal_Edges(bpy.types.Operator):
 	bl_idname = "object.swg_debug_portal_edges"
@@ -224,7 +315,16 @@ class SWG_Debug_Portal_Edges(bpy.types.Operator):
 	# Singleton overlay state — shared across instances so only one overlay
 	# is active at a time and the draw callback can access the data.
 	_handle = None
+	_legend_handle = None
 	_draw_groups = []
+	_legend_entries = [
+		((1.0, 1.0, 0.0, 1.0), "Portal"),
+		((1.0, 0.0, 0.0, 1.0), "Uncrossable"),
+		((1.0, 0.5, 0.0, 1.0), "Wall Base"),
+		((1.0, 0.3, 0.0, 1.0), "Wall Top"),
+		((0.0, 1.0, 0.0, 1.0), "Fallthrough"),
+		((0.4, 0.4, 0.4, 0.8), "Crossable"),
+	]
 
 	@classmethod
 	def poll(cls, context):
@@ -242,7 +342,10 @@ class SWG_Debug_Portal_Edges(bpy.types.Operator):
 			bpy.types.SpaceView3D.draw_handler_remove(cls._handle, 'WINDOW')
 			cls._handle = None
 			cls._draw_groups = []
-			_tag_redraw_3d(context)
+		if cls._legend_handle is not None:
+			bpy.types.SpaceView3D.draw_handler_remove(cls._legend_handle, 'WINDOW')
+			cls._legend_handle = None
+		_tag_redraw_3d(context)
 
 	def execute(self, context):
 		cls = SWG_Debug_Portal_Edges
@@ -300,6 +403,9 @@ class SWG_Debug_Portal_Edges(bpy.types.Operator):
 		cls._handle = bpy.types.SpaceView3D.draw_handler_add(
 			cls._draw_callback, (), 'WINDOW', 'POST_VIEW'
 		)
+		cls._legend_handle = bpy.types.SpaceView3D.draw_handler_add(
+			cls._draw_legend_callback, (), 'WINDOW', 'POST_PIXEL'
+		)
 
 		context.window_manager.modal_handler_add(self)
 		_tag_redraw_3d(context)
@@ -321,3 +427,7 @@ class SWG_Debug_Portal_Edges(bpy.types.Operator):
 			batch.draw(shader)
 
 		_restore_gpu_state()
+
+	@staticmethod
+	def _draw_legend_callback():
+		_draw_legend(SWG_Debug_Portal_Edges._legend_entries, title="Portal Edges")
