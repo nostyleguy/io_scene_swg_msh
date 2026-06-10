@@ -1081,7 +1081,10 @@ class FloorFile(object):
 			iff.enterForm(version)
 			
 			iff.enterChunk("VERT")
-			vertCount = iff.read_int32()
+
+			if version == "0006":
+				vertCount = iff.read_int32()
+			
 			while not iff.atEndOfForm():
 				pos = iff.read_vector3()
 				self.verts.append(pos)
