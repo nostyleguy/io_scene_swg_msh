@@ -17,12 +17,8 @@ SWG_EFT_HUEMAP = 16
 SWG_EFT_HUEFULL = 32
 SWG_EFT_HUEMAP_RB = 64
 
-def getChildren(myObject): 
-	children = [] 
-	for ob in bpy.data.objects: 
-		if ob.parent == myObject: 
-			children.append(ob) 
-	return children
+def getChildren(myObject):
+	return list(myObject.children)
 	
 def clean_path(path):
 	return path.replace('\\', '/') if (os.sep == '/') else path.replace('/', '\\')
@@ -965,23 +961,20 @@ def create_pathgraph(pgrf_collection, pgrf, parent = None, onlyCellWaypoints = F
 		sph = bpy.data.objects.new(f"{swg_types.PathGraphNode.typeStr(node.type)}-{node.index}", mesh)
 		sph.location = Vector(convert_vector3(node.position))
 
-		pgrf_collection.objects.link(sph)  
-		
-		# if a parent was provided, use it
-		if parent != None:
-			sph.parent = parent 
+		pgrf_collection.objects.link(sph)
 
-		# Select the newly created object
-		bpy.context.view_layer.objects.active = sph
-		sph.select_set(True)
+		if parent is not None:
+			sph.parent = parent
 
 		# Construct the bmesh sphere and assign it to the blender mesh.
 		bm = bmesh.new()
 		bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=0.5)
 		bm.to_mesh(mesh)
 		bm.free()
-		bpy.ops.object.modifier_add(type='SUBSURF')
-		bpy.ops.object.shade_smooth()
+
+		sph.modifiers.new(name='Subsurf', type='SUBSURF')
+		for poly in mesh.polygons:
+			poly.use_smooth = True
 
 		sph['radius'] = node.radius
 
@@ -990,10 +983,10 @@ def create_pathgraph(pgrf_collection, pgrf, parent = None, onlyCellWaypoints = F
 
 			posA = pgrf.nodes[edge.indexA].position
 			posB = pgrf.nodes[edge.indexB].position
-			coords_list = []
-			
-			coords_list.append(Vector(convert_vector3([posA[0], posA[1], posA[2]])))
-			coords_list.append(Vector(convert_vector3([posB[0], posB[1], posB[2]])))
+			coords_list = [
+				Vector(convert_vector3(posA)),
+				Vector(convert_vector3(posB)),
+			]
 
 			curveData = bpy.data.curves.new(f'edge-{edge.indexA}-{edge.indexB}', type='CURVE')
 			curveData.dimensions = '3D'
@@ -1003,14 +996,11 @@ def create_pathgraph(pgrf_collection, pgrf, parent = None, onlyCellWaypoints = F
 
 			for i, coord in enumerate(coords_list):
 				polyline.points[i].co = (coord.x, coord.y, coord.z, 1)
-				#print(f"Point {i}: {polyline.points[i]}")
 
-			# make a new object with the curve
 			obj = bpy.data.objects.new(f'edge-{edge.indexA}-{edge.indexB}', curveData)
 			pgrf_collection.objects.link(obj)
-				
-			# if a parent was provided, use it
-			if parent != None:
+
+			if parent is not None:
 				obj.parent = parent
 			
 def unit_vector(vector):

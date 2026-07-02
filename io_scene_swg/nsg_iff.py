@@ -509,6 +509,7 @@ class IFF():
 	def write(self, file_path):
 		#print(f'self.length: {self.length} len(data): {len(self.data)} stack[0].length: {self.stack[0].length} stack[0].used: {self.stack[0].used}')
 		t = time.time()
+		os.makedirs(os.path.dirname(file_path) or '.', exist_ok=True)
 		f = builtins.open(file_path, 'wb')
 		f.write(self.data[0:self.stack[0].length])
 		f.close()

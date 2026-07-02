@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 from audioop import cross
+from enum import IntEnum
 import math
 from re import I
 from sys import maxsize
@@ -223,16 +224,37 @@ class AptFile(object):
 		else:
 			return None
 
+class PathNodeType(IntEnum):
+	# Cell graph
+	CellPortal           = 0
+	CellWaypoint         = 1
+	CellPOI              = 2
+	# Building graph
+	BuildingEntrance     = 3
+	BuildingCell         = 4
+	BuildingPortal       = 5
+	# City graph
+	CityBuildingEntrance = 6
+	CityWaypoint         = 7
+	CityPOI              = 8
+	CityBuilding         = 9
+	CityEntrance         = 10
+	# Cell part
+	BuildingCellPart     = 11
+	Invalid              = 12
+
 class PathGraphNode(object):
 	typeEnum=['CellPortal','CellWaypoint','CellPOI','BuildingEntrance','BuildingCell','BuildingPortal','CityBuildingEntrance','CityWaypoint','CityPOI','CityBuilding','CityEntrance','BuildingCellPart','Invalid']
 	def __init__(self):
 		self.position = []
-		self.type = 12 #Invalid
+		self.type = PathNodeType.Invalid
 		self.radius = 1
 		self.index = -1
 		self.id = -1
 		self.key = -1
+		self.debug_name = ""
 
+	@staticmethod
 	def typeStr(type):
 		return PathGraphNode.typeEnum[type]
 
@@ -963,11 +985,107 @@ class IndexedTriangleList(object):
 		iff.exitForm("0000")
 		iff.exitForm("IDTL")
 		
-class FloorTri(object):
+class BoxTreeNode:
+	__slots__ = ('box_min', 'box_max', 'index', 'userId', 'childA', 'childB')
+	def __init__(self, box_min, box_max, userId=-1):
+		self.box_min = list(box_min)
+		self.box_max = list(box_max)
+		self.index = 0
+		self.userId = userId
+		self.childA = None
+		self.childB = None
+
+class BoxTree:
+	"""AABB tree for spatial acceleration of floor collision queries.
+	Uses top-down median-split construction (O(n log n)) which produces a
+	functionally equivalent tree to the engine's bottom-up greedy approach."""
+
+	@staticmethod
+	def build_from_tris(verts, tris):
+		"""Build a BoxTree from floor vertices and triangles."""
+		if not tris:
+			return BoxTree()
+
+		leaves = []
+		for i, tri in enumerate(tris):
+			corners = [verts[tri.corner1], verts[tri.corner2], verts[tri.corner3]]
+			bmin = [min(c[j] for c in corners) for j in range(3)]
+			bmax = [max(c[j] for c in corners) for j in range(3)]
+			centroid = [(bmin[j] + bmax[j]) * 0.5 for j in range(3)]
+			leaves.append((BoxTreeNode(bmin, bmax, userId=i), centroid))
+
+		tree = BoxTree()
+		tree.root = BoxTree._build_recursive(leaves)
+		return tree
+
+	@staticmethod
+	def _build_recursive(leaves):
+		if len(leaves) == 1:
+			return leaves[0][0]
+
+		# Find longest axis of the overall bounding box of centroids
+		cmin = [min(c[j] for _, c in leaves) for j in range(3)]
+		cmax = [max(c[j] for _, c in leaves) for j in range(3)]
+		extents = [cmax[j] - cmin[j] for j in range(3)]
+		axis = extents.index(max(extents))
+
+		# Sort by centroid along that axis and split at median
+		leaves.sort(key=lambda lc: lc[1][axis])
+		mid = len(leaves) // 2
+
+		childA = BoxTree._build_recursive(leaves[:mid])
+		childB = BoxTree._build_recursive(leaves[mid:])
+
+		parent = BoxTreeNode(
+			[min(childA.box_min[k], childB.box_min[k]) for k in range(3)],
+			[max(childA.box_max[k], childB.box_max[k]) for k in range(3)],
+		)
+		parent.childA = childA
+		parent.childB = childB
+		return parent
+
+	def __init__(self):
+		self.root = None
+
+	def write(self, iff):
+		if self.root is None:
+			return
+		# Assign pre-order indices and flatten to list
+		flat = []
+		self._flatten(self.root, flat)
+
+		iff.insertForm("BTRE")
+		iff.insertForm("0000")
+		iff.insertChunk("NODS")
+		iff.insert_int32(len(flat))
+		for node in flat:
+			iff.insertFloatVector3(node.box_max)
+			iff.insertFloatVector3(node.box_min)
+			iff.insert_int32(node.index)
+			iff.insert_int32(node.userId)
+			iff.insert_int32(node.childA.index if node.childA else -1)
+			iff.insert_int32(node.childB.index if node.childB else -1)
+		iff.exitChunk("NODS")
+		iff.exitForm("0000")
+		iff.exitForm("BTRE")
+
+	def _flatten(self, node, flat):
+		"""Pre-order traversal to assign indices and collect into flat list."""
+		node.index = len(flat)
+		flat.append(node)
+		if node.childA:
+			self._flatten(node.childA, flat)
+		if node.childB:
+			self._flatten(node.childB, flat)
+
+class FloorEdgeType(IntEnum):
 	Uncrossable = 0
 	Crossable = 1
 	WallBase = 2
 	WallTop = 3
+	Invalid = 4
+
+class FloorTri(object):
 	__slots__ = ('corner1','corner2','corner3','index','nindex1','nindex2','nindex3','normal','edgeType1','edgeType2','edgeType3','fallthrough','partTag','portalId1','portalId2','portalId3')
 	def __init__(self):
 		self.corner1 = 0
@@ -982,19 +1100,19 @@ class FloorTri(object):
 		
 		self.normal = [0,0,0]
 		
-		self.edgeType1 = FloorTri.Uncrossable
-		self.edgeType2 = FloorTri.Uncrossable
-		self.edgeType3 = FloorTri.Uncrossable
+		self.edgeType1 = FloorEdgeType.Uncrossable
+		self.edgeType2 = FloorEdgeType.Uncrossable
+		self.edgeType3 = FloorEdgeType.Uncrossable
 		
 		self.fallthrough = False
 		
-		self.partTag = 0
+		self.partTag = -1
 		
 		self.portalId1 = -1
 		self.portalId2 = -1
 		self.portalId3 = -1
 
-	def read_0002(self, iff):
+	def _read_connected_tri(self, iff):
 		self.corner1 = iff.read_int32()
 		self.corner2 = iff.read_int32()
 		self.corner3 = iff.read_int32()
@@ -1005,13 +1123,34 @@ class FloorTri(object):
 		self.nindex2 = iff.read_int32()
 		self.nindex3 = iff.read_int32()
 
+	def read_0001(self, iff):
+		self._read_connected_tri(iff)
+
 		self.normal = iff.read_vector3()
 
-		self.edgeType1 = iff.read_uint8()
-		self.edgeType2 = iff.read_uint8()
-		self.edgeType3 = iff.read_uint8()
+		crossable1 = iff.read_bool8()
+		crossable2 = iff.read_bool8()
+		crossable3 = iff.read_bool8()
+		self.edgeType1 = FloorEdgeType.Crossable if crossable1 else FloorEdgeType.Uncrossable
+		self.edgeType2 = FloorEdgeType.Crossable if crossable2 else FloorEdgeType.Uncrossable
+		self.edgeType3 = FloorEdgeType.Crossable if crossable3 else FloorEdgeType.Uncrossable
 
-		#print(f" edges: {self.edgeType1}, {self.edgeType2}, {self.edgeType3}")
+		self.fallthrough = iff.read_bool8()
+
+		self.partTag = iff.read_int32()
+
+		self.portalId1 = iff.read_int32()
+		self.portalId2 = iff.read_int32()
+		self.portalId3 = iff.read_int32()
+
+	def read_0002(self, iff):
+		self._read_connected_tri(iff)
+
+		self.normal = iff.read_vector3()
+
+		self.edgeType1 = FloorEdgeType(iff.read_uint8())
+		self.edgeType2 = FloorEdgeType(iff.read_uint8())
+		self.edgeType3 = FloorEdgeType(iff.read_uint8())
 
 		self.fallthrough = iff.read_bool8()
 
@@ -1060,12 +1199,13 @@ class PathEdge(object):
 
 class FloorFile(object):
 
-	__slots__ = ('path', 'verts', 'tris', 'pathGraph')
+	__slots__ = ('path', 'verts', 'tris', 'pathGraph', '_node_triangles')
 	def __init__(self, path):
 		self.path = path
 		self.verts = []
 		self.tris = []
 		self.pathGraph = None
+		self._node_triangles = None
 
 	def __str__(self):
 		return f"Path: {self.path}"
@@ -1075,45 +1215,71 @@ class FloorFile(object):
 
 	def load(self):
 		iff = nsg_iff.IFF(filename=self.path)
-		iff.enterForm("FLOR")		
+		iff.enterForm("FLOR")
 		version = iff.getCurrentName()
-		if version in ["0006", "0005"]:
-			iff.enterForm(version)
-			
-			iff.enterChunk("VERT")
-			vertCount = iff.read_int32()
-			while not iff.atEndOfForm():
-				pos = iff.read_vector3()
-				self.verts.append(pos)
-			iff.exitChunk("VERT")
 
-			iff.enterChunk("TRIS")
-			triCount = iff.read_int32()
-			for i in range(0, triCount):
-				#print(f"Tri {i}:")
-				f = FloorTri()
-				f.read_0002(iff)
-				self.tris.append(f)
-			iff.exitChunk("TRIS")
-
-			if not iff.atEndOfForm() and iff.getCurrentName() == "BTRE":
-				iff.enterForm("BTRE")
-				iff.exitForm("BTRE")
-			
-			if not iff.atEndOfForm() and iff.getCurrentName() == "BEDG":
-				iff.enterChunk("BEDG")
-				iff.exitChunk("BEDG")
-			
-			if not iff.atEndOfForm() and iff.getCurrentName() == "PGRF":
-				self.pathGraph = PathGraph()
-				self.pathGraph.load(iff)
-
-			print(f"Verts: {len(self.verts)} Tris: {len(self.tris)}")
+		if version == "0006":
+			self._load_0006(iff)
+		elif version == "0005":
+			self._load_0005(iff)
 		else:
 			print(f"Unhandled FLR version: {version}")
 			return False
 
+		print(f"Verts: {len(self.verts)} Tris: {len(self.tris)}")
 		return True
+
+	def _load_0006(self, iff):
+		iff.enterForm("0006")
+
+		iff.enterChunk("VERT")
+		vertCount = iff.read_int32()
+		while not iff.atEndOfForm():
+			self.verts.append(iff.read_vector3())
+		iff.exitChunk("VERT")
+
+		iff.enterChunk("TRIS")
+		triCount = iff.read_int32()
+		for i in range(triCount):
+			f = FloorTri()
+			f.read_0002(iff)
+			self.tris.append(f)
+		iff.exitChunk("TRIS")
+
+		self._load_tail(iff)
+		iff.exitForm("0006")
+
+	def _load_0005(self, iff):
+		iff.enterForm("0005")
+
+		iff.enterChunk("VERT")
+		while not iff.atEndOfForm():
+			self.verts.append(iff.read_vector3())
+		iff.exitChunk("VERT")
+
+		iff.enterChunk("TRIS")
+		while not iff.atEndOfForm():
+			f = FloorTri()
+			f.read_0001(iff)
+			self.tris.append(f)
+		iff.exitChunk("TRIS")
+
+		self._load_tail(iff)
+		iff.exitForm("0005")
+
+	def _load_tail(self, iff):
+		"""Read optional BTRE, BEDG, and PGRF sections."""
+		if not iff.atEndOfForm() and iff.getCurrentName() == "BTRE":
+			iff.enterForm("BTRE")
+			iff.exitForm("BTRE")
+
+		if not iff.atEndOfForm() and iff.getCurrentName() == "BEDG":
+			iff.enterChunk("BEDG")
+			iff.exitChunk("BEDG")
+
+		if not iff.atEndOfForm() and iff.getCurrentName() == "PGRF":
+			self.pathGraph = PathGraph()
+			self.pathGraph.load(iff)
 
 	def write(self):
 		iff = nsg_iff.IFF(initial_size=512000)
@@ -1132,159 +1298,238 @@ class FloorFile(object):
 			t.write_0002(iff)
 		iff.exitChunk("TRIS")
 
+		# Build box tree for meshes with >= 10 triangles (matches C++ gs_minTrianglesForBoxtree)
+		if len(self.tris) >= 10:
+			boxTree = BoxTree.build_from_tris(self.verts, self.tris)
+			boxTree.write(iff)
+
+		# Collect border edges, excluding WallTop (matches C++ FloorMesh::write)
 		borderEdges = []
 		for index, tri in enumerate(self.tris):
-			if tri.nindex1 == -1:
-				borderEdges.append(PathEdge(index, 0, (tri.edgeType1 != FloorTri.Uncrossable)))
-			if tri.nindex2 == -1:
-				borderEdges.append(PathEdge(index, 1, (tri.edgeType2 != FloorTri.Uncrossable)))
-			if tri.nindex3 == -1:
-				borderEdges.append(PathEdge(index, 2, (tri.edgeType1 != FloorTri.Uncrossable)))
-		iff.insertChunk("BEDG")
-		iff.insert_int32(len(borderEdges))
-		for be in borderEdges:
-			be.write(iff)
-		iff.exitChunk("BEDG")
+			for nindex, edge_id, edge_type in [
+				(tri.nindex1, 0, tri.edgeType1),
+				(tri.nindex2, 1, tri.edgeType2),
+				(tri.nindex3, 2, tri.edgeType3),
+			]:
+				if nindex == -1 and edge_type != FloorEdgeType.WallTop:
+					borderEdges.append(PathEdge(index, edge_id, edge_type != FloorEdgeType.Uncrossable))
 
-		if self.pathGraph != None:
+		if borderEdges:
+			iff.insertChunk("BEDG")
+			iff.insert_int32(len(borderEdges))
+			for be in borderEdges:
+				be.write(iff)
+			iff.exitChunk("BEDG")
+
+		if self.pathGraph is not None:
 			self.pathGraph.write(iff)
 
+		iff.exitForm("0006")
+		iff.exitForm("FLOR")
 		iff.write(self.path)
 
+	def prepare_connectivity(self):
+		"""Locate which floor triangle each pathgraph node lies on.
+		Call once before make_waypoint_connections / add_portal_edges."""
+		if self.pathGraph is None:
+			print(f"Error! Asked to prepare_connectivity without first assigning pathGraph")
+			return
+		self._node_triangles = {}
+		for node in self.pathGraph.nodes:
+			self._node_triangles[node.index] = self._find_triangle(node.position)
+
+	def _find_triangle(self, pos):
+		"""Find which triangle a position lies on (XZ plane).
+		Falls back to nearest triangle centroid for boundary points."""
+		px, pz = pos[0], pos[2]
+		for idx, tri in enumerate(self.tris):
+			if FloorFile._point_in_tri_xz(px, pz,
+				self.verts[tri.corner1][0], self.verts[tri.corner1][2],
+				self.verts[tri.corner2][0], self.verts[tri.corner2][2],
+				self.verts[tri.corner3][0], self.verts[tri.corner3][2]):
+				return idx
+		# Fallback: nearest triangle by centroid distance
+		best_dist = float('inf')
+		best_idx = 0
+		for idx, tri in enumerate(self.tris):
+			cx = (self.verts[tri.corner1][0] + self.verts[tri.corner2][0] + self.verts[tri.corner3][0]) / 3.0
+			cz = (self.verts[tri.corner1][2] + self.verts[tri.corner2][2] + self.verts[tri.corner3][2]) / 3.0
+			d = (px - cx) ** 2 + (pz - cz) ** 2
+			if d < best_dist:
+				best_dist = d
+				best_idx = idx
+		return best_idx
+
+	@staticmethod
+	def _point_in_tri_xz(px, pz, ax, az, bx, bz, cx, cz):
+		"""Test if point (px,pz) is inside triangle (a,b,c) on XZ plane."""
+		d1 = (px - bx) * (az - bz) - (ax - bx) * (pz - bz)
+		d2 = (px - cx) * (bz - cz) - (bx - cx) * (pz - cz)
+		d3 = (px - ax) * (cz - az) - (cx - ax) * (pz - az)
+		has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
+		has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
+		return not (has_neg and has_pos)
+
 	def do_nodes_connect(self, nodeA, nodeB):
-
-		resultA = None
-		resultB = None
-
-		# First locate which triangles the nodes are on..
-		for tiA, triA in enumerate(self.tris):
-			corners = [Vector(self.verts[i]) for i in [triA.corner1, triA.corner2, triA.corner3]]
-			pointA = Vector(nodeA.position)
-			resultA = mathutils.geometry.intersect_point_tri(pointA, corners[0], corners[1], corners[2])
-			if resultA != None:
-				distA = (resultA - pointA).length
-				#print(f"Node {nodeA.index} at {nodeA.position} is above tri: {ti} with corners ({self.verts[tri.corner1]}, {self.verts[tri.corner2]}, {self.verts[tri.corner3]} Result: {resultA}) Dist: {distA}")
-				if resultA > 0.1:
-					resultA = None
-				else:
-					#print(f"Node {nodeA.index} at {nodeA.position} is above tri: {tiA} with corners ({self.verts[triA.corner1]}, {self.verts[triA.corner2]}, {self.verts[triA.corner3]} Result: {resultA}) Dist: {distA}")
-					break
-		
-		for tiB, triB in enumerate(self.tris):
-			cornersB = [Vector(self.verts[i]) for i in [triB.corner1, triB.corner2, triB.corner3]]
-			pointB = Vector(nodeB.position)
-			resultB = mathutils.geometry.intersect_point_tri(pointB, cornersB[0], cornersB[1], cornersB[2])
-			if resultB != None:
-				distB = (resultB - pointB).length
-				#print(f"Node {nodeB.index} at {nodeB.position} is above tri: {ti} with corners ({self.verts[tri.corner1]}, {self.verts[tri.corner2]}, {self.verts[tri.corner3]}) Result: {resultB} Dist: {distB}")
-				if distB > 0.1:
-					resultB = None
-				else:
-					#print(f"Node {nodeB.index} at {nodeB.position} is above tri: {tiB} with corners ({self.verts[triB.corner1]}, {self.verts[triB.corner2]}, {self.verts[triB.corner3]}) Result: {resultB} Dist: {distB}")
-					break
-
-		if (resultA == None) or (resultB == None):
-			#print(f"One of the nodes at {nodeA.position} or {nodeB.position} are't on a floor triangle! Skipping!")
+		"""Test if two nodes can see each other by walking the triangle mesh
+		along the straight line between them on the XZ plane. Matches the
+		engine's FloorMesh::testConnectable / pathWalkCircle approach."""
+		tri_a = self._node_triangles.get(nodeA.index)
+		tri_b = self._node_triangles.get(nodeB.index)
+		if tri_a is None or tri_b is None:
 			return False
-		else:
-			#print(f"NodeA: {nodeA.index} at {nodeA.position} on triangle at {resultA}")
-			#print(f"NodeB: {nodeB.index} at {nodeB.position} on triangle at {resultB}")
-			pass
+		if tri_a == tri_b:
+			return True
+		return self._walk_mesh(tri_a, nodeA.position, nodeB.position, tri_b)
 
-		for ti, tri in enumerate(self.tris):
-			corners = [Vector(self.verts[i]) for i in [tri.corner1, tri.corner2, tri.corner3]]
-			if self.do_lines_intersect(resultA, resultB, corners[0], corners[1]) and (tri.edgeType1 == FloorTri.Uncrossable):
+	def _walk_mesh(self, start_tri, start_pos, end_pos, end_tri):
+		"""Walk across floor triangles following the straight line from
+		start_pos to end_pos on the XZ plane.  Uses a stack so that
+		vertex-grazing dead-ends can be backtracked."""
+		ax, az = start_pos[0], start_pos[2]
+		bx, bz = end_pos[0], end_pos[2]
+
+		# Stack entries: [current_tri, entry_s, came_from, candidates | None]
+		# candidates (computed lazily): list of (s, neighbor, etype) sorted by s
+		stack = [[start_tri, 0.0, -1, None]]
+		visited = {start_tri}
+
+		while stack:
+			frame = stack[-1]
+			current_tri, entry_s, came_from = frame[0], frame[1], frame[2]
+
+			# Lazily compute exit candidates on first visit to this frame
+			if frame[3] is None:
+				tri = self.tris[current_tri]
+				edges = (
+					(tri.corner1, tri.corner2, tri.nindex1, tri.edgeType1),
+					(tri.corner2, tri.corner3, tri.nindex2, tri.edgeType2),
+					(tri.corner3, tri.corner1, tri.nindex3, tri.edgeType3),
+				)
+				candidates = []
+				s_min = entry_s + 1e-6
+				for ci, cj, neighbor, etype in edges:
+					if neighbor == came_from:
+						continue
+					v1 = self.verts[ci]
+					v2 = self.verts[cj]
+					result = FloorFile._seg_intersect_xz(
+						ax, az, bx, bz, v1[0], v1[2], v2[0], v2[2])
+					if result is None:
+						continue
+					s, t = result
+					if s > s_min and s <= 1.0 and -1e-6 <= t <= 1.0 + 1e-6:
+						candidates.append((s, neighbor, etype))
+				candidates.sort()
+				frame[3] = candidates
+
+			candidates = frame[3]
+
+			if not candidates:
+				visited.discard(current_tri)
+				stack.pop()
+				continue
+
+			s, neighbor, etype = candidates.pop(0)
+
+			if etype == FloorEdgeType.Uncrossable:
 				return False
-			if self.do_lines_intersect(resultA, resultB, corners[1], corners[2]) and (tri.edgeType2 == FloorTri.Uncrossable):
-				return False
-			if self.do_lines_intersect(resultA, resultB, corners[2], corners[0]) and (tri.edgeType3 == FloorTri.Uncrossable):
-				return False
 
-		return True
+			if neighbor == -1 or neighbor in visited:
+				continue
 
-	def do_lines_intersect(self, nA, nB, lA, lB):
-		result = mathutils.geometry.intersect_line_line(nA, nB, lA, lB)
-		if result != None:
-			onPath = FloorFile.isBetween(lA,lB,result[0])
-			onEdge = FloorFile.isBetween(nA,nB,result[0])
-			return onPath and onEdge
-		else:
-			return False
+			if neighbor == end_tri:
+				return True
 
-	def isBetween(a, b, c):
-		crossproduct = (c.y - a.y) * (b.x - a.x) - (c.x - a.x) * (b.y - a.y)
-		if abs(crossproduct) > 0.001:
-			return False
-		distAB = (b - a).length
-		distAC = (c - a).length
-		distBC = (c - b).length
-		return ((distAC < distAB) and (distBC < distAB))
+			visited.add(neighbor)
+			stack.append([neighbor, s, current_tri, None])
+
+		return False
+
+	@staticmethod
+	def _seg_intersect_xz(ax, az, bx, bz, cx, cz, dx, dz):
+		"""2D segment intersection on XZ plane.
+		Returns (s, t) parametric values, or None if parallel."""
+		dAx = bx - ax
+		dAz = bz - az
+		dBx = dx - cx
+		dBz = dz - cz
+		denom = dAx * -dBz - dAz * -dBx
+		if abs(denom) < 1e-10:
+			return None
+		diffx = cx - ax
+		diffz = cz - az
+		s = (diffx * -dBz - diffz * -dBx) / denom
+		t = (dAx * diffz - dAz * diffx) / denom
+		return (s, t)
 
 
 	def make_waypoint_connections(self):
-		if self.pathGraph == None:
-			print(f"Error! Asked to make waypoint connecitons without first assigning pathGraph")
+		if self.pathGraph is None:
+			print(f"Error! Asked to make waypoint connections without first assigning pathGraph")
 			return
 
-		for node in self.pathGraph.nodes:
-			if node.type == 1:
-				for node2 in self.pathGraph.nodes:
-					if node2.type == 1 and (node != node2):
-						if self.do_nodes_connect(node, node2):
-							#print(f"Nodes {node.position} and {node2.position} are connected!")						 
-							edge = PathGraphEdge()
-							edge.indexA = node.index
-							edge.indexB = node2.index
-							self.pathGraph.edges.append(edge)	  
+		waypoints = [n for n in self.pathGraph.nodes if n.type == 1]
+		for i, node in enumerate(waypoints):
+			for node2 in waypoints[i + 1:]:
+				if self.do_nodes_connect(node, node2):
+					edge = PathGraphEdge()
+					edge.indexA = node.index
+					edge.indexB = node2.index
+					self.pathGraph.edges.append(edge)
+
+					edge2 = PathGraphEdge()
+					edge2.indexA = node2.index
+					edge2.indexB = node.index
+					self.pathGraph.edges.append(edge2)
 		
 
-	def add_portal_nodes(self, globalPortalIndecies):
-		if self.pathGraph == None:
+	def add_portal_nodes(self, globalPortalIndices, portalNames=None):
+		if self.pathGraph is None:
 			print(f"Error! Asked to add_portal_nodes without first assigning pathGraph")
 			return
 
-		starting_size = len(self.pathGraph.nodes)
-		last_index=-1
-
-		if starting_size > 0:
+		last_index = -1
+		if self.pathGraph.nodes:
 			last_index = self.pathGraph.nodes[-1].index
 
-		portalIdsAdded=set()
-		for tri in self.tris:
-			A = None
-			B = None
-			C = None
-			pid = None
-			if tri.portalId1 != -1:
-				pid = globalPortalIndecies[tri.portalId1]
-				A = Vector(self.verts[tri.corner1])
-				B = Vector(self.verts[tri.corner2])
-			elif tri.portalId2 != -1:
-				pid = globalPortalIndecies[tri.portalId2]
-				A = Vector(self.verts[tri.corner2])
-				B = Vector(self.verts[tri.corner3])
-			elif tri.portalId3 != -1:
-				pid = globalPortalIndecies[tri.portalId3]
-				A = Vector(self.verts[tri.corner3])
-				B = Vector(self.verts[tri.corner1])
-			if pid != None:
-				C = A + ((B-A) / 2.0)
-				if pid not in portalIdsAdded:
-					last_index += 1
-					node = PathGraphNode()
-					node.type = 0
-					node.index = last_index
-					node.key = pid
-					node.position = C
-					node.radius = 0
-					self.pathGraph.nodes.append(node)
-					portalIdsAdded.add(pid)
+		# Small fixed jitter to avoid landing exactly on floor edges,
+		# which causes ambiguous point-in-triangle tests. Matches
+		# Maya exporter (FloorBuilder.cpp:664).
+		jitter = Vector((0.007, 0.0, 0.003))
+		added = 0
 
-		print(f"Added {len(portalIdsAdded)} portal nodes. Now at {len(self.pathGraph.nodes)}")
+		for tri in self.tris:
+			edges = [
+				(tri.portalId1, tri.corner1, tri.corner2),
+				(tri.portalId2, tri.corner2, tri.corner3),
+				(tri.portalId3, tri.corner3, tri.corner1),
+			]
+			for portalId, cornerA, cornerB in edges:
+				if portalId == -1:
+					continue
+				A = Vector(self.verts[cornerA])
+				B = Vector(self.verts[cornerB])
+				if (B - A).length < 0.01:
+					continue
+				C = (A + B) / 2.0 + jitter
+
+				last_index += 1
+				node = PathGraphNode()
+				node.type = 0
+				node.index = last_index
+				node.key = globalPortalIndices[portalId]
+				node.position = C
+				node.radius = 0
+				node.debug_name = portalNames[portalId] if portalNames else f"portal_{portalId}"
+				self.pathGraph.nodes.append(node)
+				added += 1
+
+		print(f"Added {added} portal nodes. Now at {len(self.pathGraph.nodes)}")
 
 
 	def add_portal_edges(self):
-		if self.pathGraph == None:
+		if self.pathGraph is None:
 			print(f"Error! Asked to add_portal_edges without first assigning pathGraph")
 			return
 
@@ -1325,51 +1570,52 @@ class FloorFile(object):
 				
 
 	def prune_redundant_edges(self):
-		edgesToRemove=set()
-		for edge1 in self.pathGraph.edges:
-			for edge2 in self.pathGraph.edges:
+		edgesToRemove = set()
 
-				AA = edge1.indexA
-				AB = edge1.indexB
-				BA = edge2.indexA
-				BB = edge2.indexB
+		# Group edges by each vertex they touch — only edges sharing a
+		# vertex can be redundant, so this avoids the O(E^2) full scan.
+		edges_by_vertex = {}
+		for edge in self.pathGraph.edges:
+			edges_by_vertex.setdefault(edge.indexA, []).append(edge)
+			edges_by_vertex.setdefault(edge.indexB, []).append(edge)
 
-				if ((AA == BA) and (AB == BB)):
-					continue
-				if ((AA == BB) and (AB == BA)):
-					continue
+		angle_threshold = (20.0 / 360.0) * (2.0 * math.pi)
 
-				if(AA == BA):
-					A = Vector(self.pathGraph.nodes[AA].position)
-					B = Vector(self.pathGraph.nodes[AB].position)
-					C = Vector(self.pathGraph.nodes[BB].position)
-				elif(AA == BB):
-					A = Vector(self.pathGraph.nodes[AA].position)
-					B = Vector(self.pathGraph.nodes[AB].position)
-					C = Vector(self.pathGraph.nodes[BA].position)
-				elif(AB == BA):
-					A = Vector(self.pathGraph.nodes[AB].position)
-					B = Vector(self.pathGraph.nodes[AA].position)
-					C = Vector(self.pathGraph.nodes[BB].position)
-				elif(AB == BB):
-					A = Vector(self.pathGraph.nodes[AB].position)
-					B = Vector(self.pathGraph.nodes[AA].position)
-					C = Vector(self.pathGraph.nodes[BA].position)
-				else:				
-					continue
+		for vertex, edges in edges_by_vertex.items():
+			for i, edge1 in enumerate(edges):
+				for edge2 in edges[i + 1:]:
+					# Skip same or reverse edge
+					if edge1.indexA == edge2.indexA and edge1.indexB == edge2.indexB:
+						continue
+					if edge1.indexA == edge2.indexB and edge1.indexB == edge2.indexA:
+						continue
 
-				dA = (B-A).normalized()
-				dB = (C-A).normalized()
-				if(support.angle_between_unnormalized(dA, dB) < ((20.0 / 360.0) * (2.0 * math.pi))):
-					if((B-A).length > (C-A).length):
-						edgesToRemove.add(edge1)
-					else:
-						edgesToRemove.add(edge2)
-		before=len(self.pathGraph.edges)
-		for e in edgesToRemove:
-			if e in self.pathGraph.edges:
-				self.pathGraph.edges.remove(e)		
-		print(f"Edges before: {before} but removed: {len(edgesToRemove)}. Now: {len(self.pathGraph.edges)}")
+					A = Vector(self.pathGraph.nodes[vertex].position)
+					B_idx = edge1.indexB if edge1.indexA == vertex else edge1.indexA
+					C_idx = edge2.indexB if edge2.indexA == vertex else edge2.indexA
+					B = Vector(self.pathGraph.nodes[B_idx].position)
+					C = Vector(self.pathGraph.nodes[C_idx].position)
+
+					dA = (B - A).normalized()
+					dB = (C - A).normalized()
+					if support.angle_between_unnormalized(dA, dB) < angle_threshold:
+						if (B - A).length > (C - A).length:
+							edgesToRemove.add(edge1)
+						else:
+							edgesToRemove.add(edge2)
+
+		# Also remove the reverse of each pruned edge to maintain symmetric connectivity
+		edge_by_pair = {}
+		for edge in self.pathGraph.edges:
+			edge_by_pair[(edge.indexA, edge.indexB)] = edge
+		for e in list(edgesToRemove):
+			reverse = edge_by_pair.get((e.indexB, e.indexA))
+			if reverse is not None:
+				edgesToRemove.add(reverse)
+
+		before = len(self.pathGraph.edges)
+		self.pathGraph.edges = [e for e in self.pathGraph.edges if e not in edgesToRemove]
+		print(f"Edges before: {before} but removed: {before - len(self.pathGraph.edges)}. Now: {len(self.pathGraph.edges)}")
 
 class MgnHardpoint(object):
 	__slots__ = ('name', 'parent', 'orientation', 'position')

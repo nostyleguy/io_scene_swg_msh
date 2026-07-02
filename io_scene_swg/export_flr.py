@@ -21,225 +21,334 @@
 # SOFTWARE.
 
 import os
-import bpy
-import base64
-import bmesh
-import time, datetime, array, functools, math
-from . import vector3D
-from . import swg_types
-from . import vertex_buffer_format
-from . import data_types
-from . import support
+import time
+import math
 import mathutils
+from .swg_types import FloorEdgeType, FloorFile, FloorTri, PathGraph, PathGraphNode, PathNodeType
+from .support import convert_vector3, getChildren
+from mathutils import Vector
 
-from mathutils import Matrix, Vector, Color
-from bpy_extras import io_utils, node_shader_utils
+SNAP_MAX_DIST_BELOW = 3.0
+SNAP_MAX_DIST_ABOVE = 1.0
 
-from bpy_extras.wm_utils.progress_report import (
-    ProgressReport,
-    ProgressReportSubstep,
-)
+def _snap_to_floor(pos, flr):
+    """Snap a position's Y to the floor surface, preserving XZ.
+    Matches Maya's vertical ray cast (FloorBuilder.cpp:597-623):
+    prefer floor below within 3.0, fall back to above within 1.0."""
+    best_below_y = None
+    best_below_dist = float('inf')
+    best_above_y = None
+    best_above_dist = float('inf')
+    ray_down = Vector((0.0, -1.0, 0.0))
+    ray_up = Vector((0.0, 1.0, 0.0))
+    for tri in flr.tris:
+        corners = [Vector(flr.verts[i]) for i in [tri.corner1, tri.corner2, tri.corner3]]
+        # Search below
+        hit = mathutils.geometry.intersect_ray_tri(corners[0], corners[1], corners[2], ray_down, pos, True)
+        if hit is not None:
+            dist = pos.y - hit.y
+            if dist <= SNAP_MAX_DIST_BELOW and dist < best_below_dist:
+                best_below_dist = dist
+                best_below_y = hit.y
+        # Search above
+        hit = mathutils.geometry.intersect_ray_tri(corners[0], corners[1], corners[2], ray_up, pos, True)
+        if hit is not None:
+            dist = hit.y - pos.y
+            if dist <= SNAP_MAX_DIST_ABOVE and dist < best_above_dist:
+                best_above_dist = dist
+                best_above_y = hit.y
+    if best_below_y is not None:
+        return best_below_y
+    return best_above_y
 
 def export_flr(context, filepath):
-
     objects = context.selected_objects
 
-    if len(objects) == 0:
+    if not objects:
         return {'CANCELLED'}
 
     for ob in objects:
         if ob.type != 'MESH':
             continue
-        else:
-            dirname = os.path.dirname(filepath)
-            fullpath = os.path.join(dirname, ob.name+".flr")
-            result, flr = export_one(fullpath, ob, [])
-            if not 'FINISHED' in result:
-                return {'CANCELLED'}
+        dirname = os.path.dirname(filepath)
+        fullpath = os.path.join(dirname, ob.name + ".flr")
+        result, _ = export_one(fullpath, ob, [])
+        if 'FINISHED' not in result:
+            return {'CANCELLED'}
     return {'FINISHED'}
 
-def export_one(fullpath, current_obj, portal_objects, use_object_name=True):    
-    start = time.time()    
-    print(f'Exporting Flr: {fullpath}')
+def build_floor(current_obj, portal_objects):
+    """Build a FloorFile in memory from a Blender mesh object. Does not write to disk."""
+    globalPortalIndices = [p[1] for p in portal_objects]
 
-    # List of global (building-wide) portal idecies, indexed by the local (cell) portal index. 
-    # A cell with 2 portals; IDs 2 and 3, will be '[2,3]' so we can convert the local portal index to the global one easily
-    globalPortalIndecies=[]
-    for p in portal_objects:
-        globalPortalIndecies.append(p[1])
-
-
-    if use_object_name:
-        dirname = os.path.dirname(fullpath)
-        fullpath = os.path.join(dirname, current_obj.name+".flr")
-        
-    if not os.path.exists(os.path.dirname(fullpath)):
-                os.makedirs(os.path.dirname(fullpath))
-
-    flr = swg_types.FloorFile(fullpath)
+    flr = FloorFile(None)
 
     me = current_obj.to_mesh()
 
-    # Lets find the tris in the "fallthrough" face map first..
-    FALLTHROUGH_MAP_INDEX=None
-    if len(current_obj.face_maps) > 0:    
-        face_maps = current_obj.face_maps 
-        for map in face_maps:
-            if map.name.lower() == "fallthrough":
-                FALLTHROUGH_MAP_INDEX = map.index
-    if FALLTHROUGH_MAP_INDEX == None:
+    # Find the tris in the "fallthrough" face map
+    fallthrough_map_index = None
+    if current_obj.face_maps:
+        for face_map in current_obj.face_maps:
+            if face_map.name.lower() == "fallthrough":
+                fallthrough_map_index = face_map.index
+    if fallthrough_map_index is None:
         print("Warning! No 'fallthrough' FaceMap found, no triangles can be marked as fallthrough!")
     else:
         print(f"{current_obj.name} has 'fallthrough' facemap. Good to go")
 
-    face_maps_by_index=None
+    face_maps_by_index = None
     if current_obj.data.face_maps.active:
-        face_maps_by_index=[m_face_map.value for m_face_map in current_obj.data.face_maps.active.data]
+        face_maps_by_index = [m_face_map.value for m_face_map in current_obj.data.face_maps.active.data]
 
-    #print(f"Portal objects: {', '.join([pair[0].name for pair in portal_objects])}")
     for v in me.vertices:
-        flr.verts.append(support.convert_vector3([v.co[0], v.co[1], v.co[2]]))
+        flr.verts.append(convert_vector3([v.co[0], v.co[1], v.co[2]]))
 
     flr.tris = create_floor_triangles_from_mesh(current_obj, me, portal_objects)
+    if flr.tris is None:
+        return None
 
-    # Mark fallthrough tris now that they're created:
+    # Mark fallthrough tris now that they're created
     for ft in flr.tris:
-        if face_maps_by_index != None:
-            ft.fallthrough = (face_maps_by_index[ft.index] == FALLTHROUGH_MAP_INDEX) 
+        if fallthrough_map_index is not None and face_maps_by_index is not None:
+            ft.fallthrough = (face_maps_by_index[ft.index] == fallthrough_map_index)
         else:
             ft.fallthrough = False
 
-    pathGraph = swg_types.PathGraph()
+    pathGraph = PathGraph()
     flr.pathGraph = pathGraph
-    if len(support.getChildren(current_obj)) > 0:
-        # portals=[]
-        print(f"Should build PathGraph from {support.getChildren(current_obj)} children")
-        waypoints=[]
-        index=0
-        for child in support.getChildren(current_obj):
+    children = getChildren(current_obj)
+    if children:
+        print(f"Should build PathGraph from {children} children")
+        index = 0
+        for child in children:
             if child.name.startswith("CellWaypoint"):
-                node = swg_types.PathGraphNode()
-                node.index = index   
-                node.type = 1
+                node = PathGraphNode()
+                node.index = index
+                node.type = PathNodeType.CellWaypoint
+                node.debug_name = child.name
                 node.radius = child['radius']
-                converted = Vector(support.convert_vector3(child.location))
+                converted = Vector(convert_vector3(child.location))
+                # Small fixed jitter to avoid landing exactly on floor edges,
+                # which causes ambiguous point-in-triangle tests. Matches
+                # Maya exporter (FloorBuilder.cpp:593).
+                converted += Vector((0.007, 0.0, 0.003))
+                snapped_y = _snap_to_floor(converted, flr)
+                if snapped_y is not None:
+                    converted.y = snapped_y
                 node.position = [converted.x, converted.y, converted.z]
-                pathGraph.nodes.append(node)         
+                pathGraph.nodes.append(node)
                 index += 1
-        
-        
-    flr.add_portal_nodes(globalPortalIndecies)
+
+    portalNames = [p[0].name for p in portal_objects]
+    flr.add_portal_nodes(globalPortalIndices, portalNames)
+    flr.prepare_connectivity()
     flr.make_waypoint_connections()
     flr.prune_redundant_edges()
-    flr.add_portal_edges()    
+    flr.add_portal_edges()
 
+    return flr
+
+def export_one(fullpath, current_obj, portal_objects, use_object_name=True):
+    start = time.time()
+    print(f'Exporting Flr: {fullpath}')
+
+    if use_object_name:
+        dirname = os.path.dirname(fullpath)
+        fullpath = os.path.join(dirname, current_obj.name + ".flr")
+
+    os.makedirs(os.path.dirname(fullpath) or '.', exist_ok=True)
+
+    flr = build_floor(current_obj, portal_objects)
+    if flr is None:
+        return {'CANCELLED'}, None
+
+    flr.path = fullpath
     flr.write()
-    now = time.time()
-    print(f"Successfully wrote: {fullpath} Duration: " + str(datetime.timedelta(seconds=(now-start))))
+    elapsed = time.time() - start
+    print(f"Successfully wrote: {fullpath} Duration: {elapsed:.3f}s")
 
     return {'FINISHED'}, flr
 
+def _closest_point_on_segment(point, seg_a, seg_b):
+    """Return the closest point on line segment seg_a->seg_b to point."""
+    ab = seg_b - seg_a
+    len_sq = ab.dot(ab)
+    if len_sq < 1e-12:
+        return seg_a.copy()
+    t = max(0.0, min(1.0, (point - seg_a).dot(ab) / len_sq))
+    return seg_a + ab * t
+
+def _closest_point_on_polygon(point, poly_verts):
+    """Return the closest point on a polygon (edges + interior) to point."""
+    # Check edges first
+    best_dist_sq = float('inf')
+    best_point = poly_verts[0].copy()
+    n = len(poly_verts)
+    for i in range(n):
+        cp = _closest_point_on_segment(point, poly_verts[i], poly_verts[(i + 1) % n])
+        d = (cp - point).length_squared
+        if d < best_dist_sq:
+            best_dist_sq = d
+            best_point = cp
+
+    # Check interior projection — project onto polygon plane and test containment
+    normal = (poly_verts[1] - poly_verts[0]).cross(poly_verts[2] - poly_verts[0])
+    len_sq = normal.dot(normal)
+    if len_sq > 1e-12:
+        normal_n = normal / math.sqrt(len_sq)
+        dist = (point - poly_verts[0]).dot(normal_n)
+        projected = point - normal_n * dist
+        if _point_in_polygon(projected, poly_verts, normal_n):
+            d = (projected - point).length_squared
+            if d < best_dist_sq:
+                best_point = projected
+    return best_point
+
+def _point_in_polygon(point, poly_verts, normal):
+    """Test if a point (assumed coplanar) lies inside a convex polygon."""
+    n = len(poly_verts)
+    for i in range(n):
+        edge = poly_verts[(i + 1) % n] - poly_verts[i]
+        to_point = point - poly_verts[i]
+        if edge.cross(to_point).dot(normal) < 0:
+            return False
+    return True
+
+def _match_segment_to_poly(a, b, poly_verts):
+    """
+    Match a floor edge segment to a portal polygon using the same 3-test
+    approach as the engine's FloorMesh::matchSegmentToPoly.
+    """
+    # Test 1 — Project both endpoints onto the portal plane. If both
+    # projections land inside the polygon and are within 10cm of the
+    # plane, it's a match.
+    normal = (poly_verts[1] - poly_verts[0]).cross(poly_verts[2] - poly_verts[0])
+    len_sq = normal.dot(normal)
+    if len_sq > 1e-12:
+        normal_n = normal / math.sqrt(len_sq)
+        dist_a = (a - poly_verts[0]).dot(normal_n)
+        dist_b = (b - poly_verts[0]).dot(normal_n)
+        a2 = a - normal_n * dist_a
+        b2 = b - normal_n * dist_b
+        if _point_in_polygon(a2, poly_verts, normal_n) and _point_in_polygon(b2, poly_verts, normal_n):
+            if abs(dist_a) < 0.1 and abs(dist_b) < 0.1:
+                return True
+
+    # Test 2 — Check if both endpoints are within 5cm of any single
+    # portal edge segment.
+    n = len(poly_verts)
+    for i in range(n):
+        pa = poly_verts[i]
+        pb = poly_verts[(i + 1) % n]
+        a2 = _closest_point_on_segment(a, pa, pb)
+        b2 = _closest_point_on_segment(b, pa, pb)
+        if (a2 - a).length < 0.05 and (b2 - b).length < 0.05:
+            return True
+
+    # Test 3 — Check if both endpoints are within 1cm of the polygon.
+    a2 = _closest_point_on_polygon(a, poly_verts)
+    b2 = _closest_point_on_polygon(b, poly_verts)
+    if (a2 - a).length < 0.01 and (b2 - b).length < 0.01:
+        return True
+
+    return False
+
 def create_floor_triangles_from_mesh(obj, me, portal_objects):
-    tris=[]
-    edge_types={}
-    for edge in me.edges:  
-        reversed=list(edge.vertices)
-        reversed.reverse()
-        # Start it as crossable always..
-        edge_types[tuple(edge.vertices)] = swg_types.FloorTri.Crossable
-        edge_types[tuple(reversed)] = swg_types.FloorTri.Crossable
-        if edge.use_seam == True:
-            edge_types[tuple(edge.vertices)] = swg_types.FloorTri.Uncrossable
-            edge_types[tuple(reversed)] = swg_types.FloorTri.Uncrossable
-        elif edge.use_edge_sharp == True:
-            edge_types[tuple(edge.vertices)] = swg_types.FloorTri.WallBase
-            edge_types[tuple(reversed)] = swg_types.FloorTri.WallBase               
+    tris = []
+    edge_types = {}
+    for edge in me.edges:
+        key = frozenset(edge.vertices)
+        edge_types[key] = FloorEdgeType.Crossable
+        if edge.use_seam:
+            edge_types[key] = FloorEdgeType.Uncrossable
+        elif edge.use_edge_sharp:
+            edge_types[key] = FloorEdgeType.WallBase
         elif edge.crease > 0.9:
-            edge_types[tuple(edge.vertices)] = swg_types.FloorTri.WallTop
-            edge_types[tuple(reversed)] = swg_types.FloorTri.WallTop
+            edge_types[key] = FloorEdgeType.WallTop
 
-    usedPortals = []
+    # Build edge-to-triangle adjacency map for O(1) neighbor lookups
+    edge_adj = {}
+    for poly in me.polygons:
+        verts = poly.vertices
+        n = len(verts)
+        for i in range(n):
+            edge_key = frozenset((verts[i], verts[(i + 1) % n]))
+            edge_adj.setdefault(edge_key, []).append(poly.index)
+
+    # Cache portal meshes to avoid repeated to_mesh() calls
+    portal_cache = []
+    for portalIndex, (portalObj, pid) in enumerate(portal_objects):
+        if portalObj.type != 'MESH':
+            continue
+        portal_cache.append((portalIndex, portalObj, pid, portalObj.to_mesh()))
+
+    usedPortals = set()
     for t1 in me.polygons:
-        if(len(t1.vertices) != 3):
+        if len(t1.vertices) != 3:
             print(f"Error. Triangle {t1.index} has {len(t1.vertices)} vertices. Only triangles supported!")
-            return {'CANCELLED'}
+            return None
 
-        ft = swg_types.FloorTri()
+        ft = FloorTri()
         ft.index = t1.index
         ft.corner1 = t1.vertices[0]
         ft.corner2 = t1.vertices[2]
         ft.corner3 = t1.vertices[1]
 
-        t1e1 = set([t1.vertices[0],t1.vertices[2]])
-        t1e2 = set([t1.vertices[2],t1.vertices[1]])
-        t1e3 = set([t1.vertices[1],t1.vertices[0]])
+        t1e1 = frozenset([t1.vertices[0],t1.vertices[2]])
+        t1e2 = frozenset([t1.vertices[2],t1.vertices[1]])
+        t1e3 = frozenset([t1.vertices[1],t1.vertices[0]])
 
         # find the edge types
-        ft.edgeType1 = edge_types[tuple(t1e1)]
-        ft.edgeType2 = edge_types[tuple(t1e2)]
-        ft.edgeType3 = edge_types[tuple(t1e3)]
+        ft.edgeType1 = edge_types[t1e1]
+        ft.edgeType2 = edge_types[t1e2]
+        ft.edgeType3 = edge_types[t1e3]
 
-        for t2 in [x for x in me.polygons if x.index != t1.index]:
-            t2e1 = set([t2.vertices[0],t2.vertices[2]])
-            t2e2 = set([t2.vertices[2],t2.vertices[1]])
-            t2e3 = set([t2.vertices[1],t2.vertices[0]])
+        for edge_key, attr in [(t1e1, 'nindex1'), (t1e2, 'nindex2'), (t1e3, 'nindex3')]:
+            for tri_idx in edge_adj.get(edge_key, []):
+                if tri_idx != t1.index:
+                    setattr(ft, attr, tri_idx)
+                    break
 
-            if t1e1 in [t2e1, t2e2, t2e3]:
-                ft.nindex1 = t2.index
-            if t1e2 in [t2e1, t2e2, t2e3]:
-                ft.nindex2 = t2.index
-            if t1e3 in [t2e1, t2e2, t2e3]:
-                ft.nindex3 = t2.index
+        ft.normal = convert_vector3([-t1.normal.x, -t1.normal.y, -t1.normal.z])        
 
-        ft.normal = support.convert_vector3([-t1.normal.x, -t1.normal.y, -t1.normal.z])        
+        # For each boundary edge, test against all portal polygons using
+        # the same 3-test approach as the engine's matchSegmentToPoly:
+        #   Test 1: Project onto portal plane, check inside polygon & within 10cm
+        #   Test 2: Close to a portal edge segment within 5cm
+        #   Test 3: Close to nearest point on portal polygon within 1cm
+        edges_and_neighbors = [
+            (Vector(me.vertices[ft.corner1].co), Vector(me.vertices[ft.corner2].co), ft.nindex1, 'portalId1'),
+            (Vector(me.vertices[ft.corner2].co), Vector(me.vertices[ft.corner3].co), ft.nindex2, 'portalId2'),
+            (Vector(me.vertices[ft.corner3].co), Vector(me.vertices[ft.corner1].co), ft.nindex3, 'portalId3'),
+        ]
 
-        for portalIndex, pair in enumerate(portal_objects):
-            portalObj = pair[0]
-            pid=pair[1]
-            if portalObj.type != 'MESH':
-                print(f"{portalObj.name} is not a MESH, skipping!")
+        for edgeA, edgeB, neighborIdx, portalIdAttr in edges_and_neighbors:
+            if neighborIdx != -1:
                 continue
-            else:
-                if (ft.nindex1 != -1) and (ft.nindex2 != -1) and (ft.nindex3 != -1):
-                    # non-boundary triangle, skip
-                    continue
 
-                portalMesh = portalObj.to_mesh()
-
+            matched = False
+            for portalIndex, portalObj, pid, portalMesh in portal_cache:
                 for portalTri in portalMesh.polygons:
-                    portalVerts = [portalMesh.vertices[p].co for p in portalTri.vertices] 
-                    floortVerts = [me.vertices[p].co for p in t1.vertices]
-                    p1InTri = mathutils.geometry.intersect_point_tri(floortVerts[0], portalVerts[0], portalVerts[1], portalVerts[2])
-                    dist0 = (p1InTri - floortVerts[0]).length < 0.01 if p1InTri != None else False
-                    p2InTri = mathutils.geometry.intersect_point_tri(floortVerts[1], portalVerts[0], portalVerts[1], portalVerts[2])
-                    dist1 = (p2InTri - floortVerts[1]).length < 0.01 if p2InTri != None else False
-                    p3InTri = mathutils.geometry.intersect_point_tri(floortVerts[2], portalVerts[0], portalVerts[1], portalVerts[2])
-                    dist2 = (p3InTri - floortVerts[2]).length < 0.01 if p3InTri != None else False
-                    #print(f"FloorTri {t1.index} p0 ({t1.vertices[0]} = {floortVerts[0]} is in portal: {portalObj.name} tri {portalTri.index} at {p1InTri} Dist: {dist0}")
-                    #print(f"FloorTri {t1.index} p1 ({t1.vertices[1]} = {floortVerts[1]} is in portal: {portalObj.name} tri {portalTri.index} at {p2InTri} Dist: {dist1}")
-                    #print(f"FloorTri {t1.index} p2 ({t1.vertices[2]} = {floortVerts[2]} is in portal: {portalObj.name} tri {portalTri.index} at {p3InTri} Dist: {dist2}")
-                    if dist0 and dist1:
-                        print(f"   Intersection found: floorTri {t1.index}, Edge: {ft.corner1} - {ft.corner2} portalMesh {portalObj.name}: tri {portalTri.index} portalId3 = {pid}")
-                        ft.portalId3 = portalIndex
-                        usedPortals.append(portalObj)
-                    if dist1 and dist2:
-                        print(f"   Intersection found: floorTri {t1.index}, Edge: {ft.corner2} - {ft.corner3} portalMesh {portalObj.name}: tri {portalTri.index} portalId2 = {pid}")
-                        ft.portalId2 = portalIndex
-                        usedPortals.append(portalObj)
-                    if dist2 and dist0:
-                        print(f"   Intersection found: floorTri {t1.index}, Edge: {ft.corner3} - {ft.corner1} portalMesh {portalObj.name}: tri {portalTri.index} portalId1 = {pid}")
-                        ft.portalId1 = portalIndex
-                        usedPortals.append(portalObj)
+                    portalVerts = [Vector(portalMesh.vertices[p].co) for p in portalTri.vertices]
+
+                    if _match_segment_to_poly(edgeA, edgeB, portalVerts):
+                        print(f"   Intersection found: floorTri {t1.index}, Edge: {edgeA} - {edgeB} portalMesh {portalObj.name}: tri {portalTri.index} {portalIdAttr} = {pid}")
+                        setattr(ft, portalIdAttr, portalIndex)
+                        usedPortals.add(portalObj)
+                        matched = True
+                        break
+                if matched:
+                    break
 
         tris.append(ft)    
 
     unusedCount = 0
-    for portal in portal_objects:
-        if portal[0] not in usedPortals:
-            print(f"Warning: Didn't used portal: {portal[0].name}")
+    for portalObj, pid in portal_objects:
+        if portalObj not in usedPortals:
+            print(f"Warning: Didn't use portal: {portalObj.name}")
             unusedCount += 1
-    
-    if unusedCount == 0:
-        print(f"{obj.name}: all passsable portals were used!")
+
+    if unusedCount == 0 and portal_objects:
+        print(f"{obj.name}: all passable portals were used!")
 
     return tris
