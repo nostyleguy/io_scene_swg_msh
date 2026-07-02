@@ -1217,6 +1217,18 @@ class FloorFile(object):
 		iff = nsg_iff.IFF(filename=self.path)
 		iff.enterForm("FLOR")
 		version = iff.getCurrentName()
+		if version in ["0006", "0005"]:
+			iff.enterForm(version)
+			
+			iff.enterChunk("VERT")
+
+			if version == "0006":
+				vertCount = iff.read_int32()
+			
+			while not iff.atEndOfForm():
+				pos = iff.read_vector3()
+				self.verts.append(pos)
+			iff.exitChunk("VERT")
 
 		if version == "0006":
 			self._load_0006(iff)
