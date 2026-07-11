@@ -23,7 +23,7 @@
 bl_info = {
 	"name": "NSG SWG Tools",
 	"author": "Nick 'NoStyleGuy' Rafalski, Alec 'Elour' Harley, Tim 'RhapsodyInGeek' Maccabe, Rory 'Geit' King, and Vera 'sinewavey' Lux",
-	"version": (3, 1, 3),
+	"version": (3, 1, 4),
 	"blender": (2, 81, 6),
 	"location": "File > Import-Export",
 	"description": "Import-Export SWG .msh, .mgn, .lod and .pob",
