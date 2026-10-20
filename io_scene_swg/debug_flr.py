@@ -23,7 +23,7 @@
 import bpy
 from .support import convert_vector3
 from .swg_types import FloorEdgeType, PathNodeType
-from .export_flr import build_floor, create_floor_triangles_from_mesh
+from .export_flr import build_floor, create_floor_triangles_from_mesh, get_fallthrough_tri_indices
 from .export_pob import is_portal_passable
 
 
@@ -141,26 +141,6 @@ def _gather_portal_objects(obj):
 					continue
 				portal_objects.append([candidate, pid])
 	return portal_objects
-
-
-def _get_fallthrough_tris(obj, tris):
-	"""Return set of triangle indices that are in the fallthrough face map."""
-	fallthrough_map_idx = None
-	if obj.face_maps:
-		for face_map in obj.face_maps:
-			if face_map.name.lower() == "fallthrough":
-				fallthrough_map_idx = face_map.index
-
-	face_maps_by_index = None
-	if obj.data.face_maps.active:
-		face_maps_by_index = [fm.value for fm in obj.data.face_maps.active.data]
-
-	fallthrough_tris = set()
-	if fallthrough_map_idx is not None and face_maps_by_index is not None:
-		for ft in tris:
-			if face_maps_by_index[ft.index] == fallthrough_map_idx:
-				fallthrough_tris.add(ft.index)
-	return fallthrough_tris
 
 
 class SWG_Visualize_Floor_Pathgraph(bpy.types.Operator):
@@ -373,7 +353,7 @@ class SWG_Debug_Portal_Edges(bpy.types.Operator):
 				self.report({'ERROR'}, f"{obj.name} has non-triangle polygons, cannot debug portal edges")
 				continue
 
-			fallthrough_tris = _get_fallthrough_tris(obj, result)
+			fallthrough_tris = get_fallthrough_tri_indices(obj, me) or set()
 
 			world = obj.matrix_world
 			for ft in result:

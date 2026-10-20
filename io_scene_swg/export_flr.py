@@ -77,6 +77,32 @@ def export_flr(context, filepath):
             return {'CANCELLED'}
     return {'FINISHED'}
 
+def get_fallthrough_tri_indices(current_obj, me):
+    """Polygon indices of `me` in the "fallthrough" face map, or None if the object has no such map.
+
+    Prefers the face map layer on `me` over obj.data, which is stale in edit mode.
+    """
+    fallthrough_map_index = None
+    if current_obj.face_maps:
+        for face_map in current_obj.face_maps:
+            if face_map.name.lower() == "fallthrough":
+                fallthrough_map_index = face_map.index
+    if fallthrough_map_index is None:
+        return None
+
+    layer = None
+    if me is not None and me.face_maps.active:
+        layer = me.face_maps.active
+    elif current_obj.data.face_maps.active:
+        layer = current_obj.data.face_maps.active
+    if layer is None:
+        return set()
+
+    values = [m_face_map.value for m_face_map in layer.data]
+    if me is not None and len(values) != len(me.polygons):
+        print(f"Warning! {current_obj.name} has {len(me.polygons)} polygons but {len(values)} face map entries. Fallthrough flags may be incomplete (leave edit mode and try again).")
+    return {i for i, value in enumerate(values) if value == fallthrough_map_index}
+
 def build_floor(current_obj, portal_objects):
     """Build a FloorFile in memory from a Blender mesh object. Does not write to disk."""
     globalPortalIndices = [p[1] for p in portal_objects]
@@ -86,19 +112,12 @@ def build_floor(current_obj, portal_objects):
     me = current_obj.to_mesh()
 
     # Find the tris in the "fallthrough" face map
-    fallthrough_map_index = None
-    if current_obj.face_maps:
-        for face_map in current_obj.face_maps:
-            if face_map.name.lower() == "fallthrough":
-                fallthrough_map_index = face_map.index
-    if fallthrough_map_index is None:
+    fallthrough_tris = get_fallthrough_tri_indices(current_obj, me)
+    if fallthrough_tris is None:
         print("Warning! No 'fallthrough' FaceMap found, no triangles can be marked as fallthrough!")
+        fallthrough_tris = set()
     else:
         print(f"{current_obj.name} has 'fallthrough' facemap. Good to go")
-
-    face_maps_by_index = None
-    if current_obj.data.face_maps.active:
-        face_maps_by_index = [m_face_map.value for m_face_map in current_obj.data.face_maps.active.data]
 
     for v in me.vertices:
         flr.verts.append(convert_vector3([v.co[0], v.co[1], v.co[2]]))
@@ -109,10 +128,7 @@ def build_floor(current_obj, portal_objects):
 
     # Mark fallthrough tris now that they're created
     for ft in flr.tris:
-        if fallthrough_map_index is not None and face_maps_by_index is not None:
-            ft.fallthrough = (face_maps_by_index[ft.index] == fallthrough_map_index)
-        else:
-            ft.fallthrough = False
+        ft.fallthrough = ft.index in fallthrough_tris
 
     pathGraph = PathGraph()
     flr.pathGraph = pathGraph
