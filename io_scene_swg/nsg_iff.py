@@ -1,7 +1,7 @@
 import struct, io, builtins, os, sys
 import time
 import datetime
-import numpy 
+
 
 timesExpanded = 0
 class StackFrame():
@@ -395,19 +395,13 @@ class IFF():
 		self.insertChunkData(struct.pack('f', f))
 		
 	def insertFloatVector4(self, vec):
-		self.insertFloat(vec[0])
-		self.insertFloat(vec[1])
-		self.insertFloat(vec[2])
-		self.insertFloat(vec[3])
+		self.insertChunkData(struct.pack('ffff', vec[0], vec[1], vec[2], vec[3]))
 
 	def insertFloatVector3(self, vec):
-		self.insertFloat(vec[0])
-		self.insertFloat(vec[1])
-		self.insertFloat(vec[2])
+		self.insertChunkData(struct.pack('fff', vec[0], vec[1], vec[2]))
 
 	def insertFloatVector2(self, vec):
-		self.insertFloat(vec[0])
-		self.insertFloat(vec[1])
+		self.insertChunkData(struct.pack('ff', vec[0], vec[1]))
 
 	def insert_int8(self, i):
 		self.insertChunkData(int.to_bytes(i, 1, byteorder="little", signed=True))
@@ -422,22 +416,17 @@ class IFF():
 		self.insertChunkData(int.to_bytes(i, 4, byteorder="little", signed=True))	
 
 	def insertInt32Vector3(self, vec):
-		self.insert_int32(vec[0])
-		self.insert_int32(vec[1])
-		self.insert_int32(vec[2])
+		self.insertChunkData(struct.pack('<iii', vec[0], vec[1], vec[2]))
 
 	def insert_uint32(self, i):
 		self.insertChunkData(int.to_bytes(i, 4, byteorder="little", signed=False))
 	
 	def insert_color(self, color):
-		c = []
-		for i in range(4):
-			c.append(int(numpy.clip(color[i] * 255, 0, 255)))
-		self.insert_byte(c[2])
-		self.insert_byte(c[1])
-		self.insert_byte(c[0])
-		self.insert_byte(c[3])
-		#print(f"ARGB: {c[3]}, {c[0]}, {c[1]}, {c[2]}")
+		r = max(0, min(255, int(color[0] * 255)))
+		g = max(0, min(255, int(color[1] * 255)))
+		b = max(0, min(255, int(color[2] * 255)))
+		a = max(0, min(255, int(color[3] * 255)))
+		self.insertChunkData(bytes((b, g, r, a)))
 
 	def insertIff(self, iff):
 		#make sure the data array can handle this addition
@@ -517,19 +506,15 @@ class IFF():
 		#print("Writing data took: " + str(datetime.timedelta(seconds=(now - t))))
 
 	def calculate(self):
-		print(f'Max size: {self.MAXINT}')
-		crc=0xFFFFFFFF
-		for d in self.data:
-			ind = self.int_overflow((crc>>24) ^ d) & 0xFF
+		"""Iff::calculateCrc: Crc::calculate over the bytes written so far, as a signed int32."""
+		table = self._crc_table_u32()
+		crc = 0xFFFFFFFF
+		for d in self.data[:self.stack[0].length]:
+			crc = table[((crc >> 24) ^ d) & 0xFF] ^ ((crc << 8) & 0xFFFFFFFF)
+		crc ^= 0xFFFFFFFF
+		return crc - (1 << 32) if crc >= (1 << 31) else crc
 
-			#uind = int.from_bytes(ind.to_bytes(4, 'little', signed=True), 'little', signed=False)
-			temp = (self.crctable[ind] ^ (crc << 8))
-			crc = self.int_overflow(temp)
-			#print(f"{d}: Ind: {ind} Temp: {temp} CRC now {crc}")
-		return crc
-
-	def int_overflow(self, val):
-		if not -self.MAXINT-1 <= val <= self.MAXINT:
-			val = (val + (self.MAXINT + 1)) % (2 * (self.MAXINT + 1)) - self.MAXINT - 1
-		return val
+	def _crc_table_u32(self):
+		"""crctable with its signed entries masked to unsigned 32-bit."""
+		return [x & 0xFFFFFFFF for x in self.crctable]
 
