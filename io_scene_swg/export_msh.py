@@ -43,7 +43,8 @@ from bpy_extras.wm_utils.progress_report import (
 def mesh_triangulate(me):
 	bm = bmesh.new()
 	bm.from_mesh(me)
-	bmesh.ops.triangulate(bm, faces=bm.faces)
+	ngons = [f for f in bm.faces if len(f.verts) > 4]
+	bmesh.ops.triangulate(bm, faces=ngons if ngons else bm.faces)
 	bm.to_mesh(me)
 	bm.free()
 
@@ -75,11 +76,20 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
 	start = time.time()
 	print(f'Exporting msh: {fullpath} Flip UV: {flip_uv_vertical}')
 
-	def veckey2d(n, v):
-		return round(n[0], 4), round(n[1], 4), round(n[2], 4), round(v[0], 4), round(v[1], 4) 
-				
-	me = obj.to_mesh() 
-	mesh_triangulate(me)	
+	me = obj.to_mesh()
+
+	# Only invoke BMesh triangulation if the mesh contains 5+ sided ngons
+	# (which calc_tangents does not support). Otherwise calc_loop_triangles()
+	# handles tris and quads non-destructively without altering custom normals
+	# or deleting opposite-winding faces that share vertices.
+	if any(len(p.vertices) > 4 for p in me.polygons):
+		mesh_triangulate(me)
+
+	# If negative scaling, invert the normals before extracting loop normals, tangents, and loop triangles
+	if obj.matrix_world.determinant() < 0.0:
+		me.flip_normals()
+
+	me.calc_loop_triangles()
 	me.calc_normals_split()
 
 	for layer in me.vertex_colors:
@@ -87,27 +97,17 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
 
 	t_ln = array.array(data_types.ARRAY_FLOAT64, (0.0,)) * len(me.loops) * 3
 	me.loops.foreach_get("normal", t_ln)
-	normals = list(map(list, zip(*[iter(t_ln)]*3)))   
-	uv_maps=[]
-	
-	for layer in me.uv_layers:
-		uv_maps.append(layer.data[:])
+	normals = list(map(list, zip(*[iter(t_ln)]*3)))
 
-	t_ln = array.array(data_types.ARRAY_FLOAT64, [0.0,]) * len(me.loops) * 3
 	uv_names = [uvlayer.name for uvlayer in me.uv_layers]
-
-	for name in uv_names:
-		me.calc_tangents(uvmap=name)
-
-	#If negative scaling, we have to invert the normals...
-	if obj.matrix_world.determinant() < 0.0:
-		me.flip_normals()
+	if uv_names:
+		me.calc_tangents(uvmap=uv_names[0])
 
 	faces_by_material = {}
-	for polygon in me.polygons:
-		if not polygon.material_index in faces_by_material:
-			faces_by_material[polygon.material_index] = []   
-		faces_by_material[polygon.material_index].append(polygon)
+	for tri in me.loop_triangles:
+		if tri.material_index not in faces_by_material:
+			faces_by_material[tri.material_index] = []
+		faces_by_material[tri.material_index].append(tri)
 
 	for index in faces_by_material:
 		print(f"Faces_by_material[{index}]: {len(faces_by_material[index])}")
@@ -123,7 +123,6 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
 			continue
 
 		thisSPS = swg_types.SPS(this_mat_index, f'shader/{material.name}.sht', 0, [], [])
-		this_mat_index += 1
 
 		uvSets = 1
 		if "UVSets" in material:
@@ -149,16 +148,61 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
 			thisSPS.flags = vertex_buffer_format.setNumberOfTextureCoordinateSets(thisSPS.flags, uv_dim)
 			thisSPS.flags = vertex_buffer_format.setTextureCoordinateSetDimension(thisSPS.flags, uv_dim - 1, 4)
 
+		color0_layer = None
+		if doColor0:
+			if "color0" in me.vertex_colors:
+				color0_layer = me.vertex_colors["color0"].data
+			elif len(me.vertex_colors) > 0:
+				color0_layer = me.vertex_colors[0].data
+
+		color1_layer = None
+		if doColor1:
+			if "color1" in me.vertex_colors:
+				color1_layer = me.vertex_colors["color1"].data
+			elif len(me.vertex_colors) > 1:
+				color1_layer = me.vertex_colors[1].data
+
+		num_uv_layers = min(uvSets, len(me.uv_layers))
+
 		unique_verts = {}
 		last_unique_vert_index = 0
 		for face_index, face in enumerate(face_list):
 			p1 = p2 = p3 = None
-			for uv_index, l_index in enumerate(face.loop_indices):
-				v = me.vertices[face.vertices[uv_index]]
+			for uv_index, l_index in enumerate(face.loops):
+				vert_idx = face.vertices[uv_index]
+				v = me.vertices[vert_idx]
 				normal = normals[l_index]
-				test_uv = uv_maps[0][l_index].uv.copy()
-				
-				rounded = face.vertices[uv_index], veckey2d(normal, test_uv)
+
+				uvs = []
+				for i in range(0, num_uv_layers):
+					uv = me.uv_layers[i].data[l_index].uv.copy()
+					if flip_uv_vertical:
+						uv[1] = (1.0 - uv[1])
+					uvs.append(uv)
+				while len(uvs) < uvSets:
+					uvs.append(Vector((0.0, 0.0)))
+
+				color0_val = tuple(color0_layer[l_index].color) if color0_layer is not None else ((1.0, 1.0, 1.0, 1.0) if doColor0 else None)
+				color1_val = tuple(color1_layer[l_index].color) if color1_layer is not None else ((1.0, 1.0, 1.0, 1.0) if doColor1 else None)
+
+				if doDOT3 and uv_names:
+					loop = me.loops[l_index]
+					tang = support.convert_vector3(loop.tangent)
+					dot3_val = [*tang, loop.bitangent_sign]
+					dot3_key = (round(tang[0], 4), round(tang[1], 4), round(tang[2], 4), round(loop.bitangent_sign, 4))
+				elif doDOT3:
+					dot3_val = [1.0, 0.0, 0.0, 1.0]
+					dot3_key = (1.0, 0.0, 0.0, 1.0)
+				else:
+					dot3_val = None
+					dot3_key = None
+
+				norm_key = (round(normal[0], 4), round(normal[1], 4), round(normal[2], 4))
+				uv_key = tuple((round(uv[0], 4), round(uv[1], 4)) for uv in uvs)
+				c0_key = tuple(round(c, 4) for c in color0_val) if color0_val is not None else None
+				c1_key = tuple(round(c, 4) for c in color1_val) if color1_val is not None else None
+
+				rounded = (vert_idx, norm_key, uv_key, c0_key, c1_key, dot3_key)
 				if rounded not in unique_verts:
 					unique_verts[rounded] = last_unique_vert_index
 					last_unique_vert_index += 1
@@ -168,28 +212,16 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
 					swg_v.normal = Vector(support.convert_vector3(normal))
 					
 					if doColor0:
-						swg_v.color0 = me.vertex_colors["color0"].data[l_index].color
+						swg_v.color0 = color0_val
 
 					if doColor1:
-						swg_v.color1 = me.vertex_colors["color1"].data[l_index].color
+						swg_v.color1 = color1_val
 
-					for i in range(0, uvSets):
-						if i >= len(me.uv_layers):
-							break
-
-						uv = me.uv_layers[i].data[l_index].uv.copy()
-
-						if flip_uv_vertical:
-							uv[1] = (1.0 - uv[1])
-
+					for uv in uvs:
 						swg_v.texs.append(uv)
-						#if abs(uv[0]) > 10 or abs(uv[1]) > 10:
-						#print(f"SPS {this_mat_index-1} Vert {v.index} UV: {i} = {uv}")
 
 					if doDOT3:
-						loop = me.loops[l_index]						
-						tang = support.convert_vector3(loop.tangent)
-						swg_v.texs.append([ *tang, loop.bitangent_sign])
+						swg_v.texs.append(dot3_val)
 
 					thisSPS.verts.append(swg_v)
 					total_verts += 1
@@ -208,7 +240,8 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
 		newMsh.spss.append(thisSPS)	 
 		this_mat_index += 1
 
-	newMsh.extents = get_extents(obj)
+	newMsh.extents = get_extents(obj, me)
+	obj.to_mesh_clear()
 
 	for ob in bpy.data.objects: 
 		if ob.parent == obj: 
@@ -221,8 +254,11 @@ def export_one(fullpath, extract_dir, obj, flip_uv_vertical):
 
 	return {'FINISHED'}
 
-def get_extents(obj):
-	me = obj.to_mesh()
+def get_extents(obj, me=None):
+	clear_mesh = False
+	if me is None:
+		me = obj.to_mesh()
+		clear_mesh = True
 	extreme_g_x = None
 	extreme_g_y = None
 	extreme_g_z = None
@@ -246,15 +282,21 @@ def get_extents(obj):
 		if extreme_l_z == None or c[2] < extreme_l_z:
 			extreme_l_z = c[2]
 
+	if clear_mesh:
+		obj.to_mesh_clear()
+
 	return extents.BoxExtents([extreme_l_x, extreme_l_y, extreme_l_z],[extreme_g_x, extreme_g_y, extreme_g_z])
 
 def avg_vert_position_in_blender(obj):
 	me = obj.to_mesh() 
 	if len(me.vertices) > 0:
-		sum = me.vertices[0].co
+		sum = me.vertices[0].co.copy()
 		for v in me.vertices[1:]:
 			sum += v.co
 
-		return sum / len(me.vertices)
+		result = sum / len(me.vertices)
+		obj.to_mesh_clear()
+		return result
 	else:
+		obj.to_mesh_clear()
 		return None
