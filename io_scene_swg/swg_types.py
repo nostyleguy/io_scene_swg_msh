@@ -2137,14 +2137,14 @@ class SWGMesh(object):
 				index_count = iff.read_uint32()
 				for i in range(index_count//3):
 					tri = Triangle()
-					if(bpi == 2):
+					if version == "0001":
 						tri.p1 = iff.read_uint16()
 						tri.p2 = iff.read_uint16()
 						tri.p3 = iff.read_uint16()
-					elif(bpi == 4):
-						tri.p1 = iff.read_uint32()
-						tri.p2 = iff.read_uint32()
-						tri.p3 = iff.read_uint32()
+					else:
+						tri.p1 = iff.read_int32()
+						tri.p2 = iff.read_int32()
+						tri.p3 = iff.read_int32()
 					indexes.append(tri)
 				#print(f'Read Index Count: {index_count}')
 
