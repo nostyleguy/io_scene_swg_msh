@@ -94,7 +94,13 @@ def import_msh(context,
 
 	highest_vert_ind=0
 	global_loop_index=0
-	
+	total_raw_verts=0
+	verts_by_pos = {}
+	used_face_vert_sets = set()
+
+	def pos_key(co):
+		return (round(co[0], 4), round(co[1], 4), round(co[2], 4))
+
 	any_sps_has_color0 = False
 	any_sps_has_color1 = False
 	for index, sps in enumerate(msh.spss):
@@ -126,14 +132,63 @@ def import_msh(context,
 
 		mesh.materials.append(material)
 
-		uvs = []
-		for ind, vert in enumerate(sps.verts):
-			verts.append(support.convert_vector3(vert.pos))
+		total_raw_verts += len(sps.verts)
+		sps_converted_pos = [support.convert_vector3(vert.pos) for vert in sps.verts]
+		if not remove_duplicate_verts:
+			verts.extend(sps_converted_pos)
 
 		for tri in sps.tris:
-			p3 = tri.p3 + highest_vert_ind
-			p2 = tri.p2 + highest_vert_ind
-			p1 = tri.p1 + highest_vert_ind
+			if tri.p1 == tri.p2 or tri.p2 == tri.p3 or tri.p1 == tri.p3:
+				continue
+
+			co3 = sps_converted_pos[tri.p3]
+			co2 = sps_converted_pos[tri.p2]
+			co1 = sps_converted_pos[tri.p1]
+
+			if remove_duplicate_verts:
+				k3, k2, k1 = pos_key(co3), pos_key(co2), pos_key(co1)
+				if k3 == k2 or k2 == k1 or k3 == k1:
+					p3 = len(verts)
+					verts.append(co3)
+					p2 = len(verts)
+					verts.append(co2)
+					p1 = len(verts)
+					verts.append(co1)
+				else:
+					slot = 0
+					lists = (
+						verts_by_pos.setdefault(k3, []),
+						verts_by_pos.setdefault(k2, []),
+						verts_by_pos.setdefault(k1, []),
+					)
+					while True:
+						if slot < len(lists[0]) and slot < len(lists[1]) and slot < len(lists[2]):
+							cand = (lists[0][slot], lists[1][slot], lists[2][slot])
+							if frozenset(cand) in used_face_vert_sets:
+								slot += 1
+								continue
+							p3, p2, p1 = cand
+							break
+						else:
+							for co, lst in ((co3, lists[0]), (co2, lists[1]), (co1, lists[2])):
+								while len(lst) <= slot:
+									lst.append(len(verts))
+									verts.append(co)
+							p3, p2, p1 = lists[0][slot], lists[1][slot], lists[2][slot]
+							break
+			else:
+				p3 = tri.p3 + highest_vert_ind
+				p2 = tri.p2 + highest_vert_ind
+				p1 = tri.p1 + highest_vert_ind
+				if frozenset((p3, p2, p1)) in used_face_vert_sets:
+					p3 = len(verts)
+					verts.append(co3)
+					p2 = len(verts)
+					verts.append(co2)
+					p1 = len(verts)
+					verts.append(co1)
+
+			used_face_vert_sets.add(frozenset((p3, p2, p1)))
 			faces_by_material[index].append((p3, p2, p1))
 			p3n = sps.verts[tri.p3].normal
 			p2n = sps.verts[tri.p2].normal
@@ -166,7 +221,13 @@ def import_msh(context,
 
 			materials_by_face_index.append(index)
 		highest_vert_ind += len(sps.verts)
+
+	if remove_duplicate_verts:
+		print(f"Removed: {total_raw_verts - len(verts)} verts")
+
 	mesh.from_pydata(verts, [], sum(faces_by_material.values(), []))
+	mesh.update()
+	mesh.validate()
 
 	for flist in mesh.polygons:
 		flist.material_index = materials_by_face_index[flist.index]
@@ -204,19 +265,7 @@ def import_msh(context,
 		except:
 			print(f"Warning! Color1 only has {len(color1)} but need {len(color_layer.data)}")
 
-	if remove_duplicate_verts:
-		#print(f"Removing duplicate verts ...")
-		bm = bmesh.new()
-		bm.from_mesh(mesh)
-		before = len(mesh.vertices)
-		removed = bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
-		bm.to_mesh(mesh)		
-		after = len(mesh.vertices)			
-		print(f"Removed: {before - after} verts")
-		bm.free()
-		
-	mesh.update() 
-	mesh.validate()
+	mesh.update()
 
 	if not just_the_mesh:
 		for data in msh.hardpoints:
